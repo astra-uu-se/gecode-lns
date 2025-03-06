@@ -307,7 +307,7 @@ void PBSController::setupPortfolioAssets(FlatZinc::Printer& p, FlatZincOptions& 
                         asset_types[i].first == AssetType::USER_OPPOSITE ? "USER_OPPOSITE" : (
                         asset_types[i].first == AssetType::SHAVING ? "SHAVING" : (
                         asset_types[i].first == AssetType::DUMMY ? "DUMMY" : "UNKNOWN"))))))))));
-            out << "%%%mzn-stat  asset " << s << " using " << asset_types[i].second << " thread(s)" << std::endl;
+            out << "%%%mzn-stat:  asset " << s << " using " << asset_types[i].second << " thread(s)" << std::endl;
         }
     }
 }
@@ -345,12 +345,11 @@ void PBSController::controller(std::ostream& out, FlatZincOptions& fopt, Support
         asset->run();
     }
     await_runners_completed();
-
+    
     // If the shaving asset finished, the problem is unsatisfiable.
     if (assets[finished_asset]->getAssetType() == AssetType::SHAVING){
         out << "=====UNSATISFIABLE=====" << std::endl;
-    }
-    else {
+    } else {
         // Print the best or final solution:
         FlatZincSpace* sol = best_sol.load();
         BaseEngine* se;
@@ -394,93 +393,47 @@ void PBSController::controller(std::ostream& out, FlatZincOptions& fopt, Support
 //                         AssetExecutor below.
 // ########################################################################
 bool updateBestSol(PBSController& control, FlatZincSpace* sol, std::ostream& out, FlatZinc::Printer& p, bool printAll, int asset_id){
-    bool solWasBestSol = false;
-    int optVar = sol->optVar();
-    while(true){
-        // If the optimum was found, then stop there is no need to update the best solution.
-        if (control.optimum_found.load()){
-            break;
+    // If the optimum was found, then stop there is no need to update the best solution.
+    control.sol_mutex.lock();
+    if (control.optimum_found.load()){
+        control.sol_mutex.unlock();
+        return false;
+    }
+    
+    const int optVar = sol->optVar();
+    FlatZincSpace* expected = control.best_sol.load();
+    const bool solIsBetter = (
+        expected == nullptr || 
+        (control.method == FlatZincSpace::MIN
+            ? expected->iv[optVar].val() > sol->iv[optVar].val()
+            : expected->iv[optVar].val() < sol->iv[optVar].val()));
+    if (solIsBetter) {
+        // Critical Section
+        bool success = control.best_sol.compare_exchange_strong(expected, sol);
+        assert(success);
+        if (success){
+            control.all_best_solutions.push_back(static_cast<Gecode::Space*>(sol));
+            if (printAll){
+                sol->print(out, p);
+                out << "----------" << std::endl;
+            }
+            if (control.method == FlatZincSpace::SAT){
+                control.optimum_found.store(true);
+            }
+            control.asset_num_sols[asset_id]++;
+            control.finished_asset = asset_id;
         }
-
-        FlatZincSpace* control_best_sol = control.best_sol.load();
-        if (control_best_sol == nullptr){
-            control.sol_mutex.lock();
-            // Critical Section
-            FlatZincSpace* expected = nullptr;
-            bool success = control.best_sol.compare_exchange_strong(expected, sol);
-            if (success){
-                solWasBestSol = true;
-                control.all_best_solutions.push_back(static_cast<Gecode::Space*>(sol));
-                if (printAll){
-                    sol->print(out, p);
-                    out << "----------" << std::endl;
-                }
-                control.asset_num_sols[asset_id]++;
-                control.finished_asset = asset_id;
-            }
-            control.sol_mutex.unlock();
-            
-            if (success){
-                break;
-            }
-        }
-        else{
-            // TODO: Does not handle float yet.
-            if (control.method == FlatZincSpace::MAX){
-                if (control_best_sol->iv[optVar].val() < sol->iv[optVar].val()){
-                    control.sol_mutex.lock();
-                    // Critical Section
-                    FlatZincSpace* expected = control.best_sol.load();
-                    if (expected->iv[optVar].val() < sol->iv[optVar].val()){
-                        bool success = control.best_sol.compare_exchange_strong(expected, sol);
-                        assert(success);
-                        (void)success; // Dummy use of success to avoid -Wunused-variable warning
-                        if (success){
-                            solWasBestSol = true;
-                            control.all_best_solutions.push_back(static_cast<Gecode::Space*>(sol));
-                            if (printAll){
-                                sol->print(out, p);
-                                out << "----------" << std::endl;
-                            }
-                            control.asset_num_sols[asset_id]++;
-                            control.finished_asset = asset_id;
-                        }
-                    }
-                    control.sol_mutex.unlock();
-                }
-            }
-            else if (control.method == FlatZincSpace::MIN){
-                if (control_best_sol->iv[optVar].val() > sol->iv[optVar].val()){
-                    control.sol_mutex.lock();
-                    // Critical Section
-                    FlatZincSpace* expected = control.best_sol.load();
-                    if (expected->iv[optVar].val() > sol->iv[optVar].val()){
-                        bool success = control.best_sol.compare_exchange_strong(expected, sol);
-                        assert(success);
-                        if (success){
-                            solWasBestSol = true;
-                            control.all_best_solutions.push_back(static_cast<Gecode::Space*>(sol));
-                            if (printAll){
-                                sol->print(out, p);
-                                out << "----------" << std::endl;
-                            }
-                            control.asset_num_sols[asset_id]++;
-                            control.finished_asset = asset_id;
-                        }
-                    }
-                    control.sol_mutex.unlock();
-                }
-            }
-
-            break;
+        if (expected != nullptr) {
+            delete expected;
         }
     }
-    return solWasBestSol;
+    control.sol_mutex.unlock();
+    
+    return solIsBetter;
 }
 
 void AssetExecutor::runSearch(){
-    
-    bool printAll = fopt.allSolutions();
+    const bool printAll = fopt.allSolutions();
     BaseEngine* se = asset->getSE();
     StatusStatistics sstat = asset->getSStat();
     std::vector<Literal> local_forbidden_literals;
@@ -497,56 +450,33 @@ void AssetExecutor::runSearch(){
     }
     // Run the search
     FlatZincSpace* sol = nullptr;
-    bool solWasBestSol = false;
 
     // Run the search engine.
-    while (FlatZincSpace* next_sol = se->next()) {
-        if (control.optimum_found.load()){
-            delete next_sol;
-            next_sol = nullptr;
-            break;
-        }
-        // If last solution was not the current best solution, delete it.
-        if (!solWasBestSol && sol != nullptr){
+    while (FlatZincSpace* sol = se->next()) {
+        // TODO: Make sure that search did not finish due to LNS restart limit reached etc.
+        // If one asset finished, stop looking for more solutions. 
+        const bool isBestFoundSol = updateBestSol(control, sol, out, p, printAll, asset_id);
+        if (!isBestFoundSol){
             delete sol;
-            sol = nullptr;
         }
-        sol = next_sol;
-        
-        // If a solution is found, then all assets can stop their search
-        // As the problem has been satisfied.
-        if (control.method == FlatZincSpace::SAT){
-            control.sol_mutex.lock();
-            if (control.optimum_found.load()){
-                control.sol_mutex.unlock();
-                break;
-            }
-            control.optimum_found.store(true);
-            control.best_sol.store(sol);
-            control.asset_num_sols[asset_id]++;
-            control.finished_asset = asset_id;
-            solWasBestSol = true;
-            control.sol_mutex.unlock();
+        if (control.optimum_found.load()) {
             break;
         }
-        else{
-            // TODO: Make sure that search did not finish due to LNS restart limit reached etc.
-            // If one asset finished, stop looking for more solutions. 
-            solWasBestSol = updateBestSol(control, sol, out, p, printAll, asset_id);
+        if (sol->method() == FlatZincSpace::SAT) {
+            continue;
         }
-        
 
         // Apply nq constraints to make asset take advantage of shaving.
         local_forbidden_literals = control.get_forbidden_literals();
-        long unsigned int size = local_forbidden_literals.size();
-        if (!control.optimum_found.load() && size > asset->getShavingStart()){
-            for (long unsigned int i = asset->getShavingStart(); i < size; i++){
+        const size_t size = local_forbidden_literals.size();
+        if (size > asset->getShavingStart()){
+            for (size_t i = asset->getShavingStart(); i < size; i++){
                 local_forbidden_literals[i].var.nq(asset->getFZS(), local_forbidden_literals[i].value);
             }
         }
 
         // Change the search engine to update cd and ad.
-        if (!control.asset_swapped_se[asset_id] && se->statistics().depth > 50 && !control.optimum_found.load()){
+        if (!control.asset_swapped_se[asset_id] && se->statistics().depth > 50){
             Search::Options so = asset->getSO();
             so.c_d = so.c_d * se->statistics().depth;
             so.a_d = so.a_d * 2;
@@ -560,26 +490,17 @@ void AssetExecutor::runSearch(){
                 RBSEngine* upd_se = new RBSEngine(asset->getFZS(), so);
                 asset->setSE(dynamic_cast<BaseEngine*>(upd_se));
                 se = upd_se;
-            }
-            else{
+            } else {
                 BABEngine* upd_se = new BABEngine(asset->getFZS(), so);
                 asset->setSE(dynamic_cast<BaseEngine*>(upd_se));
                 se = upd_se;
             }
             control.asset_swapped_se[asset_id] = true;
         }
-        
     }
     // Stop the search timer.
     double t = t_solve.stop();
     asset->increaseSolveTime(t);
-    // The first asset to finish will be the final best solution.
-    if (control.optimum_found.exchange(true)){
-        if (!solWasBestSol){
-            delete sol;
-            sol = nullptr;
-        }
-    }
     control.thread_done();
 }
 
@@ -735,16 +656,13 @@ void DFSAsset::setupAsset(){
     fzs->pbs_current_best_sol = &control.best_sol;
     // Make space know if optimum has been found.
     fzs->optimum_found = &control.optimum_found;
-
+    
     // Copy iv,bv,sv_introduced vector from fg, as it does not follow the cloning process.
     fzs->iv_introduced = fg->iv_introduced;
     fzs->bv_introduced = fg->bv_introduced;
     fzs->sv_introduced = fg->sv_introduced;
     switch (asset_id)
     {
-    case 0:
-        fzs->postConstraints(fg->constraints, false);
-        break;
     case 7:
         fzs->postConstraints(fg->constraints, true);
         if (!fg->solveAnnotations()){
@@ -818,9 +736,6 @@ void LNSAsset::setupAsset(){
     search_options.nogoods_limit = fopt.nogoods() ? fopt.nogoods_limit() : 0;
 
     fzs->setLNSType(lns_type);
-    if (lns_type == FlatZinc::FlatZincSpace::LNSType::CIG){
-        fzs->ciglns_info = new CIGInfo(fzs->iv_lns_default_size);
-    }
 
     if (fopt.interrupt()) Driver::PBSCombinedStop::installCtrlHandler(true);
     

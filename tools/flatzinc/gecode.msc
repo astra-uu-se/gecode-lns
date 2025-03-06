@@ -1,0 +1,37 @@
+{
+  "id": "dexter",
+  "name": "Dexter",
+  "description": "Gecode Dexter Portfolio FlatZinc executable",
+  "version": "6.3.0",
+  "mznlib": "../../../gecode/flatzinc/mznlib/",
+  "executable": ["../../bin/fzn-gecode", "--use-pbs"],
+  "tags": ["cp", "int", "float", "set", "restart", "portfolio search"],
+  "stdFlags": ["-a", "-f", "-n", "-p", "-r", "-s", "-t", "--cp-profiler"],
+  "extraFlags": [
+    ["--use-pbs", "Use portfolio-based search", "bool", "false"],
+    ["--full-s", "Print statistics of all assets (iff -s is used)", "bool", "false"],
+    ["--pbs-asset-type", "enumeration of the PBS asset type: 0 = branch and bound asset; 1 = random lns asset; 2 = propagation guided lns asset; 3 = cost impact guided lns asset; 4 = objective relaxation lns asset; 5 = static variable dependency lns asset; 6 = reversed propagation guided lns asset; 7 = prioritized branching bab asset; 8 = branch and bound opposite branching asset; 9 = shaving asset; -1 = run multiple assets", "int", "-1"],
+    ["--c-d", "Recomputation commit distance", "int", "8"],
+    ["--a-d", "Recomputation adaption distance", "int", "2"],
+    ["--decay", "Decay factor", "float", "0.99"],
+    ["--node", "Node cutoff", "int", "0"],
+    ["--fail", "Failure cutoff", "int", "0"],
+    [
+      "--restart",
+      "Restart sequence type",
+      "opt:none:constant:linear:luby:geometric",
+      "none"
+    ],
+    ["--restart-base", "Base for geometric restart sequence", "float", "1.5"],
+    ["--restart-scale", "Scale factor for restart sequence", "int", "250"],
+    ["--restart-limit", "Restart cutoff", "int", "0"],
+    ["--nogoods", "Use no-goods from restarts", "bool", "false"],
+    ["--nogoods-limit", "Depth limit for no-good extraction", "int", "128"]
+  ],
+  "supportsMzn": false,
+  "supportsFzn": true,
+  "needsSolns2Out": true,
+  "needsMznExecutable": false,
+  "needsStdlibDir": false,
+  "isGUIApplication": false
+}

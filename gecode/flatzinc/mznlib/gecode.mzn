@@ -110,3 +110,6 @@ predicate gecode_schedule_unary_optional(array[int] of var int: x,
 predicate gecode_schedule_cumulative_optional(array[int] of var int: start,
   array[int] of int: duration, array[int] of int: usage,
   array[int] of var bool: m, int: capacity);
+
+% For LNS: Specify warm start values v for an array of integers x:
+annotation lns_warm_start(array[int] of var int: x, array[int] of int: y);

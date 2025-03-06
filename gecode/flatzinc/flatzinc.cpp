@@ -803,15 +803,11 @@ namespace Gecode { namespace FlatZinc {
       _solveAnnotations(nullptr),
       _lnsType(f._lnsType),
       _lnsAnnType(f._lnsAnnType),
-
-      iv_lns_default_idx(f.iv_lns_default_idx),
-      iv_lns_default_size(f.iv_lns_default_size),
-      iv_lns_obj_relax_idx(f.iv_lns_obj_relax_idx),
-      iv_lns_obj_relax_size(f.iv_lns_obj_relax_size),
-      non_fzn_introduced_vars_idx(f.non_fzn_introduced_vars_idx),
-      non_fzn_introduced_vars_size(f.non_fzn_introduced_vars_size),
-
+      default_iv_obj_relax_indices(f.default_iv_obj_relax_indices),
+      last_best_restart(f.last_best_restart),
+      last_best_objective(f.last_best_objective),
       variable_relations(f.variable_relations),
+      variable_impacts(f.variable_impacts),
       ciglns_info(f.ciglns_info),
 
       restart_data(f.restart_data),
@@ -832,7 +828,6 @@ namespace Gecode { namespace FlatZinc {
       branchInfo = f.branchInfo;
       iv.update(*this, f.iv);
 
-      iv_initial_branching = f.iv_initial_branching;
       iv_lns.update(*this, f.iv_lns);
 
       // iv_lns_default.update(*this, f.iv_lns_default);
@@ -909,10 +904,26 @@ namespace Gecode { namespace FlatZinc {
 
   FlatZincSpace::FlatZincSpace(Rnd& random)
   : _initData(new FlatZincSpaceInitData),
-    intVarCount(-1), boolVarCount(-1), floatVarCount(-1), setVarCount(-1),
-    _optVar(-1), _optVarIsInt(true), _lns(0), _lnsInitialSolution(0),
-    _random(random), _solveAnnotations(nullptr), iv_lns_default_idx(nullptr), iv_lns_default_size(0), iv_lns_obj_relax_idx(nullptr), iv_lns_obj_relax_size(0), non_fzn_introduced_vars_idx(nullptr), non_fzn_introduced_vars_size(0), variable_relations(nullptr), ciglns_info(nullptr), _lnsAnnType(LNSAnnType::NO_LNS_ANN),
-    pbs_current_best_sol(nullptr), optimum_found(nullptr), needAuxVars(true) {
+    intVarCount(-1),
+    boolVarCount(-1),
+    floatVarCount(-1),
+    setVarCount(-1),
+    _optVar(-1),
+    _optVarIsInt(true),
+    _lns(nullptr),
+    _lnsInitialSolution(0),
+    _random(random),
+    _solveAnnotations(nullptr),
+    default_iv_obj_relax_indices(),
+    last_best_restart(nullptr),
+    last_best_objective(nullptr),
+    variable_relations(nullptr),
+    variable_impacts(nullptr),
+    ciglns_info(nullptr),
+    _lnsAnnType(LNSAnnType::NO_LNS_ANN),
+    pbs_current_best_sol(nullptr),
+    optimum_found(nullptr),
+    needAuxVars(true) {
     branchInfo.init();
   }
 
@@ -1100,9 +1111,7 @@ namespace Gecode { namespace FlatZinc {
     ConExprOrder ceo;
     std::sort(ces.begin(), ces.end(), ceo);
     // postConstraints is called twice from parser for domain constraints and non-domain constraints
-    if (_method != Meth::SAT){
-      constraints.insert(constraints.end(), ces.begin(), ces.end());
-    }
+    constraints.insert(constraints.end(), ces.begin(), ces.end());
     for (unsigned int i=0; i<ces.size(); i++) {
       const ConExpr& ce = *ces[i];
       try {
@@ -1130,359 +1139,137 @@ namespace Gecode { namespace FlatZinc {
   }
 
   void FlatZincSpace::deletePBSArrays(){
-      if (iv_lns_obj_relax_idx == iv_lns_default_idx){
-        delete[] iv_lns_default_idx;
-      }
-      else{
-        delete[] iv_lns_default_idx;
-        delete[] iv_lns_obj_relax_idx;
-      }
-      delete[] non_fzn_introduced_vars_idx;
-
-      iv_lns_default_idx = nullptr;
-      iv_lns_obj_relax_idx = nullptr;
-      non_fzn_introduced_vars_idx = nullptr;
+      default_iv_obj_relax_indices = nullptr;
   }
 
   void FlatZincSpace::storeConstraintInformation(){
-    int num_non_introduced_vars = 0;
-
-    // Go through every variable in the model and find the best fit for the default LNS variables.
-    int tot_afc = 0;
-    double afc_sq_sum = 0;
-    for (int i = 0; i < iv.size(); i++){
-      tot_afc += iv[i].afc();
-      afc_sq_sum += iv[i].afc() * iv[i].afc();
-    }
-    double afc_mean = tot_afc / iv.size();
-    double afc_stdev = std::sqrt((afc_sq_sum / iv.size()) - (afc_mean * afc_mean));
-
-    int num_lns_vars = 0;
-    if (afc_stdev < 1){
-      for (int i = 0; i < iv.size(); i++){
-        if (iv[i].afc() > 0){
-          num_lns_vars++;
-        }
-      }
-      // iv_lns_default = IntVarArray(*this, num_lns_vars);
-      iv_lns_default_idx = new int[num_lns_vars]();
-      iv_lns_default_size = num_lns_vars;
-      int j = 0;
-      // Change so that only a percentage of variables are actually selected.
-      for (int i = 0; i < iv.size(); i++){
-        if (iv[i].afc() > 0){
-          iv_initial_branching.push_back(i);
-          iv_lns_default_idx[j] = i;
-          // iv_lns_default[j] = iv[i];
-          j++;
-        }
-      }
-    }
-    else{
-      for (int i = 0; i < iv.size(); i++){
-        // Only freeze variables with a high afc, since freezing those variables help in the search because 
-        // they are the most constrained and failed variables and will help the other variables find solutions.
-        if (iv[i].afc() > afc_mean){
-          num_lns_vars++;
-        }
-      }
-      iv_lns_default_idx = new int[num_lns_vars]();
-      iv_lns_default_size = num_lns_vars;
-      // iv_lns_default = IntVarArray(*this, num_lns_vars);
-      int j = 0;
-      for (int i = 0; i < iv.size(); i++){
-        if (iv[i].afc() > afc_mean){
-          iv_initial_branching.push_back(i);
-          iv_lns_default_idx[j] = i;
-          // iv_lns_default[j] = iv[i];
-          j++;
-        }
-      }
-    }
-
-
-    std::vector<ConsVarInfo> cons_info_vec;
-    std::vector<AST::Array*> vars_vec;
-    double constraint_weight;
+    default_iv_obj_relax_indices = nullptr;
     for (ConExpr* ce : constraints){
-      // Check if constraint is of type int_lin_eq and is defined var in compiled fzn file for the use of Objective Relaxation LNS.
-      if (ce->id == "int_lin_eq" && ce->ann != nullptr && ce->ann->a.size() > 0){
-        if (ce->ann != nullptr && ce->ann->getArray()->a[0]->isCall("defines_var")){
-          AST::Call* call = ce->ann->getArray()->a[0]->getCall("defines_var");
-          AST::Node* var = call->args;
+      // Ensure that the constraint is of type int_lin_eq and is defined var in compiled fzn file for the use of Objective Relaxation LNS.
+      if (ce->id != "int_lin_eq" || ce->ann == nullptr || ce->ann->a.size() == 0 || !ce->ann->getArray()->a[0]->isCall("defines_var")) {
+        continue;
+      }
+      AST::Call* call = ce->ann->getArray()->a[0]->getCall("defines_var");
+      AST::Node* var = call->args;
 
-          if (var != nullptr && var->getIntVar() == _optVar){
-            AST::Array* coef;
-            AST::Array* vars;
-            coef = ce->args->a[0]->getArray();
-            vars = ce->args->a[1]->getArray();
+      if (var == nullptr || var->getIntVar() != _optVar) {
+        continue;
+      }
 
-            // Two different cases: All coefficients are similar or some coefficients are larger than other.
-            // Loop starts at 1 since the first entry is the objective value itself, and freezing that variable breaks the point of the search.
-            double mean = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double acc, AST::Node* b) { return acc + std::abs(b->getInt()); }) / (coef->a.size()-1);
-            double sq_sum = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double sum, AST::Node* b) { int val = b->getInt(); return sum + val * val; });
-            double stdev = std::sqrt((sq_sum / (coef->a.size()-1)) - (mean * mean));
+      
+      AST::Array* coef = ce->args->a[0]->getArray();
+      AST::Array* vars = ce->args->a[1]->getArray();
 
-            // Case 1: coefficients are similar (a standard deviation smaller than 1)
-            int num_relevant_vars = 0;
-            if (stdev < 1){
-              for (unsigned long int i = 0; i < vars->a.size(); i++){
-                if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && iv[vars->a[i]->getIntVar()].size() > 2){
-                  num_relevant_vars++;
-                }
-              }
-              iv_lns_obj_relax_idx = new int[num_relevant_vars]();
-              iv_lns_obj_relax_size = num_relevant_vars;
-              // iv_lns_obj_relax = IntVarArray(*this, num_relevant_vars);
-              for (unsigned long int i = 0; i < vars->a.size(); i++){
-                if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && iv[vars->a[i]->getIntVar()].size() > 2){
-                  iv_lns_obj_relax_idx[i] = vars->a[i]->getIntVar();
-                  // iv_lns_obj_relax[i-1] = iv[vars->a[i]->getIntVar()];
-                }
-              }
-            }
-            // Case 2: Some coefficients are larger than other, keep those non-fixed and make those with smaller mean freezeable, to relax the objective.
-            else{
-              for (unsigned long int i = 0; i < vars->a.size(); i++){
-                if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && iv[vars->a[i]->getIntVar()].size() > 2 && coef->a[i]->getInt() < mean){
-                  num_relevant_vars++;
-                }
-              }
-              if (num_relevant_vars > 0){
-                iv_lns_obj_relax_idx = new int[num_relevant_vars]();
-                iv_lns_obj_relax_size = num_relevant_vars;
-                // iv_lns_obj_relax = IntVarArray(*this, num_relevant_vars);
-                int k = 0;
-                for (unsigned long int i = 0; i < vars->a.size(); i++){
-                  assert(iv_lns_obj_relax_size > i);
-                  if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && iv[vars->a[i]->getIntVar()].size() > 2 && coef->a[i]->getInt() < mean){
-                    iv_lns_obj_relax_idx[k++] = vars->a.at(i)->getIntVar();
-                    // iv_lns_obj_relax[i] = iv[vars->a[i]->getIntVar()];
-                  }
-                }
-              }
+      // Two different cases: All coefficients are similar or some coefficients are larger than other.
+      // Loop starts at 1 since the first entry is the objective value itself, and freezing that variable breaks the point of the search.
+      const double mean = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double acc, AST::Node* b) { return acc + std::abs(b->getInt()); }) / (coef->a.size()-1);
+      const double sq_sum = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double sum, AST::Node* b) { int val = b->getInt(); return sum + val * val; });
+      const double stdev = std::sqrt((sq_sum / (coef->a.size()-1)) - (mean * mean));
 
-            }
-          }
+      // Case 1: coefficients are similar (a standard deviation smaller than 1)
+      // Case 2: Some coefficients are larger than other, keep those non-fixed and make those with smaller mean freezeable, to relax the objective.
+      default_iv_obj_relax_indices = std::make_shared<std::vector<int>>();
+      int num_relevant_vars = 0;
+      for (size_t i = 0; i < vars->a.size(); i++){
+        if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && iv[vars->a[i]->getIntVar()].size() > 2 && (stdev < 1 || coef->a[i]->getInt() < mean)) {
+          default_iv_obj_relax_indices->emplace_back(vars->a[i]->getIntVar());
         }
       }
-
-      // Go through every constraint from the mzn model and gather the variable data needed for Static Variable Dependency LNS asset.
-      vars_vec.clear();
-      constraint_weight = 0;
-
-      if (ce->id == "fzn_all_different_int" || ce->id == "fzn_alldifferent_except_0"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 1000 / vars_vec[0]->a.size();
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_bin_packing_load"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 1000 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_bin_packing_capa" || ce->id == "fzn_bin_packing"){
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 1000 / vars_vec[0]->a.size();
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_circuit"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 1000 / vars_vec[0]->a.size();
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_cumulatives"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        vars_vec.push_back(ce->args->a[2]->getArray());
-        vars_vec.push_back(ce->args->a[3]->getArray());
-        constraint_weight = 1000 / (vars_vec[0]->a.size() + vars_vec[1]->a.size() + vars_vec[2]->a.size() + vars_vec[3]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size() + vars_vec[2]->a.size() + vars_vec[3]->a.size();  
-      }
-      else if (ce->id == "fzn_cumulative_opt" || ce->id == "fzn_cumulative"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        vars_vec.push_back(ce->args->a[2]->getArray());
-        constraint_weight = 1000 / (vars_vec[0]->a.size() + vars_vec[1]->a.size() + vars_vec[2]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size() + vars_vec[2]->a.size();  
-      }
-      else if (ce->id == "fzn_diffn"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        vars_vec.push_back(ce->args->a[2]->getArray());
-        vars_vec.push_back(ce->args->a[3]->getArray());
-        constraint_weight = 1000 / (vars_vec[0]->a.size() + vars_vec[1]->a.size() + vars_vec[2]->a.size() + vars_vec[3]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size() + vars_vec[2]->a.size() + vars_vec[3]->a.size();  
-      }
-      else if (ce->id == "fzn_global_cardinality_closed" || ce->id == "fzn_global_cardinality"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[2]->getArray());
-        constraint_weight = 1000 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_global_cardinality_low_up" || ce->id == "fzn_global_cardinality_low_up_closed"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 1000 / vars_vec[0]->a.size();
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_disjunctive_strict_opt" || ce->id == "fzn_disjunctive_strict"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 1000 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_inverse"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 750 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_decreasing_int"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 750 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_table_int_reif" || ce->id == "fzn_table_int"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 750 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_increasing_int"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 750 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_sort"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 500 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_value_precede_int"){
-        vars_vec.push_back(ce->args->a[2]->getArray());
-        constraint_weight = 500 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_count_eq_reif" || ce->id == "fzn_count_eq"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 500 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_regular"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[3]->getArray());
-        constraint_weight = 500 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_nvalue"){
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 500 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_at_least_int"){
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_roots"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_range"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_lex_less_int" || ce->id == "fzn_lex_lesseq_int"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size() + vars_vec[1]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size() + vars_vec[1]->a.size();
-      }
-      else if (ce->id == "fzn_int_set_channel"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_member_int_reif" || ce->id == "fzn_member_int"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_at_most_int"){
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 300 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_all_equal_int"){
-        vars_vec.push_back(ce->args->a[0]->getArray());
-        constraint_weight = 200 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-      else if (ce->id == "fzn_among"){
-        vars_vec.push_back(ce->args->a[1]->getArray());
-        constraint_weight = 200 / (vars_vec[0]->a.size());
-        num_non_introduced_vars += vars_vec[0]->a.size();
-      }
-
-      cons_info_vec.push_back(ConsVarInfo(vars_vec, constraint_weight));
-
     }
 
-    if (cons_info_vec.size() > 0){
-      // For each variable present, map the iv index to the index that will be used in non_fzn_introduced_vars
-      int var_index = 0;
-      std::unordered_map<int, int> var_mapper;
-      for (long unsigned int i = 0; i < cons_info_vec.size(); i++){
-        for (long unsigned int j = 0; j < cons_info_vec[i].vars.size(); j++){
-          for (long unsigned int k = 0; k < cons_info_vec[i].vars[j]->a.size(); k++){
-            int iv_index = cons_info_vec[i].vars[j]->a[k]->getIntVar();
-            if (var_mapper.find(iv_index) == var_mapper.end()) {
-              var_mapper[cons_info_vec[i].vars[j]->a[k]->getIntVar()] = var_index;
-              var_index++;
+    std::vector<std::unordered_set<int>> constraint_input_vars;
+    for (ConExpr* ce : constraints){
+      constraint_input_vars.emplace_back();
+      for (size_t i = 0; i < ce->args->a.size(); ++i) {
+        if (ce->args->a[0]->isArray()) {
+          auto arr = ce->args->a[0]->getArray();
+          for (size_t j = 0; j < arr->a.size(); ++j) {
+            if (arr->a[j]->isIntVar() && iv[arr->a[j]->getIntVar()].width() > 1) {
+              constraint_input_vars.back().emplace(arr->a[j]->getIntVar());
             }
+          }
+        } else if (ce->args->a[i]->isIntVar() && iv[ce->args->a[i]->getIntVar()].width() > 1) {
+          constraint_input_vars.back().emplace(ce->args->a[i]->getIntVar());
+        }
+      }
+    }
+
+    // For each variable present, map the iv index to the index that will be used in non_fzn_introduced_vars
+    std::unordered_map<IntVar*, int> iv_lns_indices;
+    iv_lns_indices.reserve(hasLnsVarAnn() ? iv_lns.size() : 0);
+    if (hasLnsVarAnn()) {
+      for (int i = 0;  i < iv_lns.size(); ++i) {
+        iv_lns_indices.emplace(&iv_lns[i], i);
+      }
+    }
+
+    std::vector<int> num_vars(constraint_input_vars.size(), 0);
+    for (size_t i = 0; i < constraint_input_vars.size(); i++) {
+      for (const int var_index : constraint_input_vars[i]) {
+        if (!hasLnsVarAnn() || iv_lns_indices.find(&iv[var_index]) != iv_lns_indices.end()) {
+          ++num_vars[i];
+        }
+      }
+    }
+
+    size_t size = hasLnsVarAnn() ? iv_lns.size() : iv.size();
+    std::vector<int> num_constraints(size, 0);
+    for (size_t i = 0; i < constraint_input_vars.size(); ++i) {
+      if (constraint_input_vars[i].size() <= 1) {
+        continue;
+      }
+      for (const int var_index : constraint_input_vars[i]) {
+        if (hasLnsVarAnn()) {
+          auto* var = &iv[var_index];
+          if (iv_lns_indices.find(var) != iv_lns_indices.end()) {
+            ++num_constraints.at(iv_lns_indices[var]);
+          }
+        } else {
+          ++num_constraints.at(var_index);
+        }
+      }
+    }
+
+    
+    variable_relations = std::make_shared<std::vector<std::vector<double>>>(size, std::vector<double>(size));
+    // The variable_relations matrix is used for Static Variable Dependency LNS asset
+    // and contain the relations between the variables given the weights defined for each constraint.
+    for (size_t i = 0; i < constraint_input_vars.size(); i++) {
+      for (auto iter1 = constraint_input_vars[i].begin(); iter1 != constraint_input_vars[i].end(); ++iter1) {
+        auto iter2 = iter1;
+        for (++iter2; iter2 != constraint_input_vars[i].end(); ++iter2){
+          if (hasLnsVarAnn()) {
+            auto* var1 = &iv[*iter1];
+            auto* var2 = &iv[*iter2];
+            if (iv_lns_indices.find(var1) != iv_lns_indices.end() && iv_lns_indices.find(var2) != iv_lns_indices.end()) {
+              const int iv_lns_index1 = iv_lns_indices[var1];
+              const int iv_lns_index2 = iv_lns_indices[var2];
+              (*variable_relations).at(iv_lns_index1).at(iv_lns_index2) += 1.0 / num_vars[i];
+              (*variable_relations).at(iv_lns_index2).at(iv_lns_index1) += 1.0 / num_vars[i];  
+            }
+          } else {
+            (*variable_relations).at(*iter1).at(*iter2) += 1.0 / num_vars[i];
+            (*variable_relations).at(*iter2).at(*iter1) += 1.0 / num_vars[i];
           }
         }
       }
-      variable_relations = new double*[var_mapper.size()];
-      for (long unsigned int i = 0; i < var_mapper.size(); i++){
-        variable_relations[i] = new double[var_mapper.size()];
-        std::fill_n(variable_relations[i], var_mapper.size(), 0);
-      }
-
-      non_fzn_introduced_vars_idx = new int[var_mapper.size()]();
-      non_fzn_introduced_vars_size = var_mapper.size();
-      // non_fzn_introduced_vars = IntVarArray(*this, var_mapper.size());
-
-      // The variable_relations matrix is used for Static Variable Dependency LNS asset
-      // and contain the relations between the variables given the weights defined for each constraint.
-      for (long unsigned int i = 0; i < cons_info_vec.size(); i++){
-        for (long unsigned int j = 0; j < cons_info_vec[i].vars.size(); j++){
-          for (long unsigned int k = 0; k < cons_info_vec[i].vars[j]->a.size(); k++){
-            // For each pair of variables, add the weight to that index. The LNS will then select variables to freeze based on the weight.
-            // non_fzn_introduced_vars[var_mapper[cons_info_vec[i].vars[j]->a[k]->getIntVar()]] = iv[cons_info_vec[i].vars[j]->a[k]->getIntVar()];
-            non_fzn_introduced_vars_idx[var_mapper[cons_info_vec[i].vars[j]->a[k]->getIntVar()]] = cons_info_vec[i].vars[j]->a[k]->getIntVar();
-            int iv_index = cons_info_vec[i].vars[j]->a[k]->getIntVar();
-            for (long unsigned int l = k; l < cons_info_vec[i].vars[j]->a.size(); l++){
-              if (l != k){
-                int iv_index2 = cons_info_vec[i].vars[j]->a[l]->getIntVar();
-                variable_relations[var_mapper[iv_index]][var_mapper[iv_index2]] += cons_info_vec[i].weight;
-                variable_relations[var_mapper[iv_index2]][var_mapper[iv_index]] += cons_info_vec[i].weight;
-              }
-            }
-          }
-        }
+    }
+    for (size_t i = 0; i < size; ++i) {
+      for (size_t j = 0; j < size; ++j) {
+        (*variable_relations).at(i).at(j) *= (1.0 / num_constraints[i]);
       }
     }
 
     default_lns = 60;
 
-    if (iv_lns_obj_relax_idx == nullptr){
-      iv_lns_obj_relax_idx = iv_lns_default_idx;
-      iv_lns_obj_relax_size = iv_lns_default_size;
+    last_best_restart = std::make_shared<unsigned long>(0);
+    if (last_best_objective == nullptr) {
+      last_best_objective = std::make_shared<int>(0);
     }
+
+    ciglns_info = std::make_shared<CIGInfo>(0);
+    variable_impacts = std::make_shared<std::vector<int>>();
+    variable_impacts->clear();
   }
 
   void
@@ -1529,7 +1316,7 @@ namespace Gecode { namespace FlatZinc {
       fv_searched[i] = false;
 #endif
 
-    _lns = 0;
+    _lns = std::make_shared<unsigned int>(0);
     if (ann || bm.use_pbs_branching) {
       std::vector<AST::Node*> flatAnn;
       // Prioritise PBS branching annotations over annotations by the model, if to use PBS branching.
@@ -1599,22 +1386,58 @@ namespace Gecode { namespace FlatZinc {
           iv_lns = IntVarArray(*this, k);
           k = 0;
           for (unsigned int i=0; i<vars->a.size(); i++) {
-            if (vars->a[i]->isInt())
+            if (vars->a[i]->isInt()) {
               continue;
+            }
             iv_lns[k++] = iv[vars->a[i]->getIntVar()];
           }
           if (args->a.size()==3) {
             AST::Array *initial = args->a[2]->getArray();
-            _lnsInitialSolution = IntSharedArray(initial->a.size());
-            for (unsigned int i=initial->a.size(); i--;)
-              _lnsInitialSolution[i] = initial->a[i]->getInt();
+            if (vars->a.size() != initial->a.size()) {
+              throw FlatZinc::Error("FlatZinc", "Arrays to relax_and_reconstruct must have same size");
+            }
+            _lnsInitialSolution = IntSharedArray(iv_lns.size());
+            k = 0;
+            for (unsigned int i=0; i < initial->a.size(); i++) {
+              if (vars->a[i]->isInt()) {
+                continue;
+              }
+              _lnsInitialSolution[k++] = initial->a[i]->getInt();
+              }
           }
           if (freezePercentage < 0 || 100 < freezePercentage){
-            _lns = default_lns;
+            (*_lns) = default_lns;
             _lnsAnnType = LNSAnnType::ONLY_VARS_ANN;
           } else {
-            _lns = freezePercentage;
+            (*_lns) = freezePercentage;
             _lnsAnnType = LNSAnnType::FULL_LNS_ANN;
+          }
+        } else if (flatAnn[i]->isCall("lns_warm_start")) {
+          if (_lnsInitialSolution.size() != 0 || iv_lns.size() != 0)
+            throw FlatZinc::Error("FlatZinc", "Only one lns_warm_start annotation allowed");
+          AST::Call *call = flatAnn[i]->getCall("lns_warm_start");
+          AST::Array* args = call->getArgs(2);
+          AST::Array *vars = args->a[0]->getArray();
+          AST::Array *initial = args->a[1]->getArray();
+          if (vars->a.size() != initial->a.size()) {
+            throw FlatZinc::Error("FlatZinc", "Arrays to lns_warm_start must have same size");
+          }
+          int k = vars->a.size();
+          for (int i = vars->a.size(); i--;) {
+            if (vars->a[i]->isInt()){
+              k--;
+            }
+          }
+          iv_lns = IntVarArray(*this, k);
+          _lnsInitialSolution = IntSharedArray(k);
+          k = 0;
+          for (size_t i = 0; i < vars->a.size(); i++) {
+            if (vars->a[i]->isInt()) {
+              continue;
+            }
+            iv_lns[k] = iv[vars->a[i]->getIntVar()];
+            _lnsInitialSolution[k] = initial->a[i]->getInt();
+            k++;
           }
         } else if (flatAnn[i]->isCall("gecode_search")) {
           AST::Call* c = flatAnn[i]->getCall();
@@ -1819,7 +1642,7 @@ namespace Gecode { namespace FlatZinc {
     // If relax and reconstruct is not set: Use default values obtained in storeConstraintInformation:
     if (_lnsAnnType != LNSAnnType::FULL_LNS_ANN){
       // iv_lns = iv_lns_default;
-      _lns = default_lns;
+      (*_lns) = default_lns;
     }
 
     int introduced = 0;
@@ -2089,6 +1912,7 @@ namespace Gecode { namespace FlatZinc {
   FlatZincSpace::solve(AST::Array* ann) {
     _method = SAT;
     _solveAnnotations = ann;
+    last_best_objective = std::make_shared<int>(0);
   }
 
   void
@@ -2097,6 +1921,7 @@ namespace Gecode { namespace FlatZinc {
     _optVar = var;
     _optVarIsInt = isInt;
     _solveAnnotations = ann;
+    last_best_objective = std::make_shared<int>(std::numeric_limits<int>::max());
   }
 
   void
@@ -2105,6 +1930,7 @@ namespace Gecode { namespace FlatZinc {
     _optVar = var;
     _optVarIsInt = isInt;
     _solveAnnotations = ann;
+    last_best_objective = std::make_shared<int>(std::numeric_limits<int>::min());
   }
 
   FlatZincSpace::~FlatZincSpace(void) {
@@ -2367,30 +2193,23 @@ namespace Gecode { namespace FlatZinc {
       int findSol = noOfSolutions;
       FlatZincSpace* sol = nullptr;
       while (FlatZincSpace* next_sol = se.next()) {
-        delete sol;
         sol = next_sol;
-        if (printAll) {
+        --findSol;
+        if (printAll || findSol == 0) {
           sol->print(out, p);
           out << "----------" << std::endl;
         }
-        if (--findSol==0)
-          goto stopped;
-      }
-      if (sol && !printAll) {
-        sol->print(out, p);
-        out << "----------" << std::endl;
+        delete sol;
       }
       if (!se.stopped()) {
-        if (sol) {
+        if (noOfSolutions > 0) {
           out << "==========" << std::endl;
         } else {
           out << "=====UNSATISFIABLE=====" << std::endl;
         }
-      } else if (!sol) {
+      } else if (noOfSolutions <= 0) {
           out << "=====UNKNOWN=====" << std::endl;
       }
-      delete sol;
-      stopped:
       if (opt.interrupt())
         Driver::CombinedStop::installCtrlHandler(false);
       if (opt.mode() == SM_STAT) {
@@ -2494,12 +2313,9 @@ namespace Gecode { namespace FlatZinc {
     }
     
     // Delete variable_relations matrix
-    if (variable_relations != nullptr){
-      for (int i = 0; i < non_fzn_introduced_vars_size; i++){
-        delete[] variable_relations[i];
-      }
-      delete[] variable_relations;
-    }
+    variable_relations = nullptr;
+    variable_impacts = nullptr;
+    
   }
 
   void
@@ -2739,46 +2555,37 @@ namespace Gecode { namespace FlatZinc {
       }
     }
 
-    if (mi.type() == MetaInfo::RESTART && _lnsAnnType != LNSAnnType::FULL_LNS_ANN){
-      unsigned long long int sols = mi.solution();
-      unsigned long long int fails = mi.fail();
-      // Update the LNS keep percentage: If more sols than fails, lower the keep percentage, otherwise increase it.
-      // THINKING: Many solutions will lead to a increase in keep percentage, making it possible to explore the neighbourhood more exhaustivly.
-      //           Few solutions will lead to an decrease in keep percentage, making it possible to explore more of the search space, and get out of failing branchers.
-      if (fails > sols && fails > 0 && sols > 0){
-        _lns = std::max(10.0, floor(_lns - sols/fails));
-      }
-      else if (fails > 0 && sols > 0){
-        _lns = std::min(90.0, ceil(_lns + sols/fails));
-      }
+    if (mi.type() == MetaInfo::RESTART && _lnsAnnType != LNSAnnType::FULL_LNS_ANN && mi.restart() != 0 && mi.restart() > *last_best_restart){
+      const unsigned long diff = mi.restart() - *last_best_restart;
+      const int change = diff > 50 ? 1 : -1;
+      *_lns = std::max<int>(5, std::min<int>(90, static_cast<int>(*_lns) + change));
     }
 
     // Depending on the type of LNS, apply it and return false.
-    bool maximize = _method == MAX;
     switch (_lnsType) {
       case RANDOM:
       {
-        return _lnsStrategy.random(*this, mi, pbs_current_best_sol, _lnsInitialSolution, _lns, iv_lns_default_idx, iv_lns_default_size, iv_lns, _lnsAnnType != LNSAnnType::FULL_LNS_ANN, _random);
+        return _lnsStrategy.random(*this, mi);
       }
       case PG:
       {
-        return _lnsStrategy.propagationGuided(*this, mi, pbs_current_best_sol, non_fzn_introduced_vars_idx, non_fzn_introduced_vars_size, _lns / 100.0, 10, _random);
+        return _lnsStrategy.propagationGuided(*this, mi, 10);
       }
       case rPG:
       {
-        return _lnsStrategy.reversedPropagationGuided(*this, mi, pbs_current_best_sol, non_fzn_introduced_vars_idx, non_fzn_introduced_vars_size, _lns / 100.0, 10, _random);
+        return _lnsStrategy.reversedPropagationGuided(*this, mi, 10);
       }
       case OBJREL:
       {
-        return _lnsStrategy.objectiveRelaxation(*this, mi, pbs_current_best_sol, _lns, iv_lns_obj_relax_idx, iv_lns_obj_relax_size, _random);
+        return _lnsStrategy.objectiveRelaxation(*this, mi);
       }
       case CIG:
       {
-        return _lnsStrategy.costImpactGuided(*this, mi, pbs_current_best_sol, ciglns_info, iv_lns_default_idx, maximize, 2, 0.5, ceil((_lns / 100.0) * iv_lns_default_size), _random);
+        return _lnsStrategy.costImpactGuided(*this, mi, 2, 0.5);
       }
       case SVR:
       {
-        return _lnsStrategy.staticVariableRelation(*this, mi, pbs_current_best_sol, non_fzn_introduced_vars_idx, non_fzn_introduced_vars_size, ceil((_lns / 100.0) * iv_lns_default_size), _random);
+        return _lnsStrategy.staticVariableRelation(*this, mi);
       }
       default:
       {

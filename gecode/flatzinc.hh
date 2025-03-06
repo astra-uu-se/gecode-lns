@@ -502,7 +502,7 @@ namespace Gecode { namespace FlatZinc {
     Meth _method;
 
     /// Percentage of variables to keep in LNS (or 0 for no LNS)
-    unsigned int _lns;
+    std::shared_ptr<unsigned int> _lns;
     unsigned int default_lns;
 
     /// Initial solution to start the LNS (or nullptr for no LNS)
@@ -542,25 +542,33 @@ namespace Gecode { namespace FlatZinc {
     /// The introduced integer variables
     Gecode::IntVarArray iv_aux;
 
-    // Integer variables used for inital branching if asset in PBS is to do so:
-    std::vector<int> iv_initial_branching;
-
-    /// The integer variables used in LNS
-    int* iv_lns_default_idx;
-    int iv_lns_default_size;
-
-    int* iv_lns_obj_relax_idx;
-    int iv_lns_obj_relax_size;
-
-    int* non_fzn_introduced_vars_idx;
-    int non_fzn_introduced_vars_size;
-
+    /// The indices in this->iv used for the objective relaxation asset:
+    std::shared_ptr<std::vector<int>> default_iv_obj_relax_indices;
+    
     Gecode::IntVarArray iv_lns;
     // Gecode::IntVarArray iv_lns_default;
     // Gecode::IntVarArray iv_lns_obj_relax;
     // Gecode::IntVarArray non_fzn_introduced_vars;
-    double** variable_relations;
-    CIGInfo* ciglns_info;
+    
+    const int freezePercent() const {
+      return *_lns;
+    }
+    const bool hasLnsVarAnn() const {
+      return _lnsAnnType != LNSAnnType::NO_LNS_ANN;
+    }
+    const IntSharedArray& lnsInitialSolution() const {
+      return _lnsInitialSolution;
+    }
+    Gecode::Rnd& random() {
+      return _random;
+    }
+    std::shared_ptr<unsigned long> last_best_restart;
+    std::shared_ptr<int> last_best_objective;
+    
+    std::shared_ptr<std::vector<std::vector<double>>> variable_relations;
+    std::shared_ptr<std::vector<int>> variable_impacts;
+    std::shared_ptr<CIGInfo> ciglns_info;
+
 
     /* === Experimental `on_restart` support === */
     class OnRestartHandle : public SharedHandle {
@@ -660,6 +668,7 @@ namespace Gecode { namespace FlatZinc {
     std::atomic<bool>* optimum_found;
     /// Whether the introduced variables still need to be copied
     bool needAuxVars;
+
     /// Construct empty space
     FlatZincSpace(Rnd& random = defrnd);
 
