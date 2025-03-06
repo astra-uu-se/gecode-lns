@@ -631,6 +631,7 @@ namespace Gecode {
       _fail("fail","failure cutoff (0 = none, solution mode)"),
       _time("time","time (in ms) cutoff (0 = none, solution mode)"),
       _assets("assets","#portfolio assets (#engines)",0),
+      _pbs_asset_type("pbs-asset-type","choice of asset", -1),
       _slice("slice","portfolio slice (in #failures)",Search::Config::slice),
       _restart("restart","restart sequence type",RM_NONE),
       _r_base("restart-base","base for geometric restart sequence",
@@ -679,7 +680,7 @@ namespace Gecode {
     add(_search); add(_solutions); add(_threads); add(_c_d); add(_a_d);
     add(_d_l);
     add(_node); add(_fail); add(_time); add(_interrupt);
-    add(_assets); add(_slice);
+    add(_assets); add(_slice); add(_pbs_asset_type);
     add(_restart); add(_r_base); add(_r_scale); add(_r_limit);
     add(_nogoods); add(_nogoods_limit);
     add(_relax);

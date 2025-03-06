@@ -436,6 +436,7 @@ namespace Gecode {
                               _fail;          ///< Cutoff for number of failures
     Driver::DoubleOption      _time;          ///< Cutoff for time
     Driver::UnsignedIntOption _assets;        ///< Number of assets in a portfolio
+    Driver::IntOption         _pbs_asset_type;
     Driver::UnsignedIntOption _slice;         ///< Size of a portfolio slice
     Driver::StringOption      _restart;       ///< Restart method option
     Driver::DoubleOption      _r_base;        ///< Restart base
@@ -572,6 +573,11 @@ namespace Gecode {
     void assets(unsigned int n);
     /// Return slice size in a portfolio
     unsigned int assets(void) const;
+
+    /// Set default asset type of the portfolio
+    void pbsAssetType(int n);
+    /// Return slice size in a portfolio
+    int pbsAssetType(void) const;
 
     /// Set default slice size in a portfolio
     void slice(unsigned int n);

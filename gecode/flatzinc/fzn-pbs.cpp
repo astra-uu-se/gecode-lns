@@ -258,15 +258,24 @@ void PBSController::setupPortfolioAssets(FlatZinc::Printer& p, FlatZincOptions& 
         //     asset_types = {pair(USER, 1), pair(PB_USER, 1), pair(USER_OPPOSITE, 1), pair(SHAVING, 1)};
         // }
     }
+    else if (0 <= fopt.pbsAssetType() && fopt.pbsAssetType() <= 9){
+        asset_types = {pair(static_cast<AssetType>(fopt.pbsAssetType()), 1)};
+    }
     else{
         // If optimization problem, then use all available search assets.
         asset_types = {pair(AssetType::USER, 1), pair(AssetType::PB_USER, 1), pair(AssetType::USER_OPPOSITE, 1), pair(AssetType::CIGLNS, 1), pair(AssetType::OBJRELLNS, 1), pair(AssetType::SVRLNS, 1), pair(AssetType::PGLNS, 1), pair(AssetType::REVPGLNS, 1), pair(AssetType::LNS_USER, 1), pair(AssetType::SHAVING, 1)};
+
     }
 
     // Choose the number of assets to create based on the number of threads available.
     if (fopt.threads() > asset_types.size()){
         assets_to_create = asset_types.size();
-        asset_types[0] = pair(AssetType::USER, fopt.threads() - assets_to_create + 1);
+        for (size_t i = 0; i < asset_types.size(); ++i) {
+            if (asset_types[i].first == AssetType::USER) {
+                asset_types[i] = pair(AssetType::USER, fopt.threads() - assets_to_create + 1);
+                break;
+            }
+        }
     }
     else{
         assets_to_create = fopt.threads();
@@ -283,6 +292,23 @@ void PBSController::setupPortfolioAssets(FlatZinc::Printer& p, FlatZincOptions& 
         createPortfolioAssets(asset_types[asset].first, asset, p, fopt, out, asset_types[asset].second);
         assets[asset]->increaseSolveTime(initTime);
         assets[asset]->setSStat(sstat);
+    }
+    if (fopt.fullStatistics()) {
+        out << "%%%mzn-stat: created " << assets_to_create << " asset(s):" << std::endl;
+        for (size_t i = 0; i < assets_to_create; ++i) {
+            const auto s = asset_types[i].first == AssetType::USER ? "USER" : (
+                        asset_types[i].first == AssetType::LNS_USER ? "LNS_USER" : (
+                        asset_types[i].first == AssetType::PGLNS ? "PGLNS" : (
+                        asset_types[i].first == AssetType::CIGLNS ? "CIGLNS" : (
+                        asset_types[i].first == AssetType::OBJRELLNS ? "OBJRELLNS" : (
+                        asset_types[i].first == AssetType::SVRLNS ? "SVRLNS" : (
+                        asset_types[i].first == AssetType::REVPGLNS ? "REVPGLNS" : (
+                        asset_types[i].first == AssetType::PB_USER ? "PB_USER" : (
+                        asset_types[i].first == AssetType::USER_OPPOSITE ? "USER_OPPOSITE" : (
+                        asset_types[i].first == AssetType::SHAVING ? "SHAVING" : (
+                        asset_types[i].first == AssetType::DUMMY ? "DUMMY" : "UNKNOWN"))))))))));
+            out << "%%%mzn-stat  asset " << s << " using " << asset_types[i].second << " thread(s)" << std::endl;
+        }
     }
 }
 

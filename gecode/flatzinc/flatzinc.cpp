@@ -802,6 +802,7 @@ namespace Gecode { namespace FlatZinc {
       _initData(nullptr), _random(f._random),
       _solveAnnotations(nullptr),
       _lnsType(f._lnsType),
+      _lnsAnnType(f._lnsAnnType),
 
       iv_lns_default_idx(f.iv_lns_default_idx),
       iv_lns_default_size(f.iv_lns_default_size),
@@ -812,7 +813,6 @@ namespace Gecode { namespace FlatZinc {
 
       variable_relations(f.variable_relations),
       ciglns_info(f.ciglns_info),
-      hasLNSann(f.hasLNSann),
 
       restart_data(f.restart_data),
       iv_boolalias(nullptr),
@@ -911,7 +911,7 @@ namespace Gecode { namespace FlatZinc {
   : _initData(new FlatZincSpaceInitData),
     intVarCount(-1), boolVarCount(-1), floatVarCount(-1), setVarCount(-1),
     _optVar(-1), _optVarIsInt(true), _lns(0), _lnsInitialSolution(0),
-    _random(random), _solveAnnotations(nullptr), iv_lns_default_idx(nullptr), iv_lns_default_size(0), iv_lns_obj_relax_idx(nullptr), iv_lns_obj_relax_size(0), non_fzn_introduced_vars_idx(nullptr), non_fzn_introduced_vars_size(0), variable_relations(nullptr), ciglns_info(nullptr), hasLNSann(false),
+    _random(random), _solveAnnotations(nullptr), iv_lns_default_idx(nullptr), iv_lns_default_size(0), iv_lns_obj_relax_idx(nullptr), iv_lns_obj_relax_size(0), non_fzn_introduced_vars_idx(nullptr), non_fzn_introduced_vars_size(0), variable_relations(nullptr), ciglns_info(nullptr), _lnsAnnType(LNSAnnType::NO_LNS_ANN),
     pbs_current_best_sol(nullptr), optimum_found(nullptr), needAuxVars(true) {
     branchInfo.init();
   }
@@ -1581,7 +1581,7 @@ namespace Gecode { namespace FlatZinc {
           // if (_lnsType != RANDOM){
           //   continue;
           // }
-          if (_lns != 0)
+          if (_lnsAnnType != LNSAnnType::NO_LNS_ANN)
             throw FlatZinc::Error("FlatZinc", "Only one relax_and_reconstruct annotation allowed");
           AST::Call *call = flatAnn[i]->getCall("relax_and_reconstruct");
           AST::Array* args;
@@ -1590,7 +1590,7 @@ namespace Gecode { namespace FlatZinc {
           } else {
             args = call->getArgs(3);
           }
-          _lns = args->a[1]->getInt();
+          const int freezePercentage = args->a[1]->getInt();
           AST::Array *vars = args->a[0]->getArray();
           int k=vars->a.size();
           for (int i=vars->a.size(); i--;)
@@ -1609,10 +1609,12 @@ namespace Gecode { namespace FlatZinc {
             for (unsigned int i=initial->a.size(); i--;)
               _lnsInitialSolution[i] = initial->a[i]->getInt();
           }
-          hasLNSann = true;
-          if (_lns == -1){
+          if (freezePercentage < 0 || 100 < freezePercentage){
             _lns = default_lns;
-            hasLNSann = false;
+            _lnsAnnType = LNSAnnType::ONLY_VARS_ANN;
+          } else {
+            _lns = freezePercentage;
+            _lnsAnnType = LNSAnnType::FULL_LNS_ANN;
           }
         } else if (flatAnn[i]->isCall("gecode_search")) {
           AST::Call* c = flatAnn[i]->getCall();
@@ -1815,7 +1817,7 @@ namespace Gecode { namespace FlatZinc {
     }
 
     // If relax and reconstruct is not set: Use default values obtained in storeConstraintInformation:
-    if (!hasLNSann){
+    if (_lnsAnnType != LNSAnnType::FULL_LNS_ANN){
       // iv_lns = iv_lns_default;
       _lns = default_lns;
     }
@@ -2411,6 +2413,8 @@ namespace Gecode { namespace FlatZinc {
             << "%%%mzn-stat: failures=" << stat.fail << std::endl
             << "%%%mzn-stat: restarts=" << stat.restart << std::endl
             << "%%%mzn-stat: peakDepth=" << stat.depth << std::endl
+            << "%%%mzn-stat: LNS type=" << (_lnsAnnType == LNSAnnType::NO_LNS_ANN ? "NO_LNS_ANN" : (_lnsAnnType == LNSAnnType::ONLY_VARS_ANN ? "ONLY_VARS_ANN" : "FULL_LNS_ANN")) << std::endl
+            << "%%%mzn-stat: PBS LNS type=" << opt.pbsAssetType() << std::endl
             << "%%%mzn-stat-end" << std::endl
             << std::endl;
       }
@@ -2735,7 +2739,7 @@ namespace Gecode { namespace FlatZinc {
       }
     }
 
-    if (mi.type() == MetaInfo::RESTART && !hasLNSann){
+    if (mi.type() == MetaInfo::RESTART && _lnsAnnType != LNSAnnType::FULL_LNS_ANN){
       unsigned long long int sols = mi.solution();
       unsigned long long int fails = mi.fail();
       // Update the LNS keep percentage: If more sols than fails, lower the keep percentage, otherwise increase it.
@@ -2754,7 +2758,7 @@ namespace Gecode { namespace FlatZinc {
     switch (_lnsType) {
       case RANDOM:
       {
-        return _lnsStrategy.random(*this, mi, pbs_current_best_sol, _lnsInitialSolution, _lns, iv_lns_default_idx, iv_lns_default_size, iv_lns, hasLNSann, _random);
+        return _lnsStrategy.random(*this, mi, pbs_current_best_sol, _lnsInitialSolution, _lns, iv_lns_default_idx, iv_lns_default_size, iv_lns, _lnsAnnType != LNSAnnType::FULL_LNS_ANN, _random);
       }
       case PG:
       {

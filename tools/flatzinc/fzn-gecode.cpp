@@ -66,39 +66,29 @@ int main(int argc, char** argv) {
       else {
         fg = FlatZinc::parse(filename, p, std::cerr, nullptr, rnd);
     }
-    // Force the use of regular Gecode if satisfaction problem (as the portfolio is only implemented for optimisation problems)
-    if (opt.usePBS() && opt.threads() > 1){
-      if (fg){
+    if (fg){
+      if (opt.output()) {
+        std::ofstream os(opt.output());
+        if (!os.good()) {
+          std::cerr << "Could not open file " << opt.output() << " for output."
+                    << std::endl;
+          exit(EXIT_FAILURE);
+        }
+        // Force the use of regular Gecode if satisfaction problem (as the portfolio is only implemented for optimisation problems)
+        if (opt.usePBS() && fg->method() != FlatZincSpace::Meth::SAT && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
+          fg->runPBS(os, p, opt, t_total);
+        } else {
+          fg->run(os, p, opt, t_total);
+        }
+        os.close();
+      } else if (opt.usePBS() && fg->method() != FlatZincSpace::Meth::SAT && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
         fg->runPBS(std::cout, p, opt, t_total);
-      }
-      else{
-        exit(EXIT_FAILURE);
+      } else {
+        fg->run(std::cout, p, opt, t_total);
       }
     }
-    else {
-      if (!strcmp(filename, "-")) {
-        fg = FlatZinc::parse(cin, p, std::cerr, nullptr, rnd);
-      } 
-      else {
-        fg = FlatZinc::parse(filename, p, std::cerr, nullptr, rnd);
-      }
-      if (fg) {
-        if (opt.output()) {
-          std::ofstream os(opt.output());
-          if (!os.good()) {
-            std::cerr << "Could not open file " << opt.output() << " for output."
-                      << std::endl;
-            exit(EXIT_FAILURE);
-          }
-          fg->run(os, p, opt, t_total);
-          os.close();
-        } else {
-          fg->run(std::cout, p, opt, t_total);
-        }
-      } else {
-        exit(EXIT_FAILURE);
-      }
-      
+    else{
+      exit(EXIT_FAILURE);
     }
     delete fg->solveAnnotations();
     delete fg;

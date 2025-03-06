@@ -390,6 +390,16 @@ namespace Gecode {
   }
 
   inline void
+  Options::pbsAssetType(int n) {
+    _pbs_asset_type.value(n);
+  }
+
+  inline int
+  Options::pbsAssetType() const {
+    return _pbs_asset_type.value();
+  }
+
+  inline void
   Options::slice(unsigned int n) {
     _slice.value(n);
   }

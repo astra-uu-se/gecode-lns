@@ -258,8 +258,9 @@ namespace Gecode { namespace FlatZinc {
       Gecode::Driver::BoolOption        _interrupt; ///< Whether to catch SIGINT
       Gecode::Driver::DoubleOption      _step;        ///< Step option
       Gecode::Driver::BoolOption        _use_pbs; //< Whether to use PBS or default BAB ADDED
-      Gecode::Driver::BoolOption        _full_s; //< Whether to use PBS or default BAB ADDED
+      Gecode::Driver::BoolOption        _full_s;
       Gecode::Driver::IntOption        _assets; //< How many assets to use for PBS
+      Gecode::Driver::IntOption        _pbs_asset_type;
       //@}
 
       /// \name Execution options
@@ -303,6 +304,18 @@ namespace Gecode { namespace FlatZinc {
       _use_pbs("use-pbs", "whether to use portfolio-based-search or not", false), // ADDED
       _full_s("full-s", "whether to print statistics of all assets", false), // ADDED
       _assets("assets","the number of assets to use with portfolio-based search", 8), // ADDED
+      _pbs_asset_type("pbs-asset-type", "enumeration of the PBS asset type: "
+      "0 = branch and bound asset; "
+      "1 = random lns asset; "
+      "2 = propagation guided lns asset; "
+      "3 = cost impact guided lns asset; "
+      "4 = objective relaxation lns asset; "
+      "5 = static variable dependency lns asset; "
+      "6 = reversed propagation guided lns asset; "
+      "7 = prioritized branching bab asset; "
+      "8 = branch and bound opposite branching asset; "
+      "9 = shaving asset; "
+      "-1 = run multiple assets (defined by -assets flag)", 0),
 
       _mode("mode","how to execute script",Gecode::SM_SOLUTION),
       _stat("s","emit statistics"),
@@ -332,6 +345,7 @@ namespace Gecode { namespace FlatZinc {
       add(_restart); add(_r_base); add(_r_scale); add(_r_limit);
       add(_nogoods); add(_nogoods_limit);
       add(_mode); add(_stat); add(_use_pbs); add(_full_s); add(_assets);
+      add(_pbs_asset_type);
       add(_output); 
 #ifdef GECODE_HAS_CPPROFILER
       add(_profiler);
@@ -391,6 +405,7 @@ namespace Gecode { namespace FlatZinc {
     bool nogoods(void) const { return _nogoods.value(); }
     unsigned int nogoods_limit(void) const { return _nogoods_limit.value(); }
     bool interrupt(void) const { return _interrupt.value(); }
+    int pbsAssetType(void) const { return _pbs_asset_type.value(); }
 
 #ifdef GECODE_HAS_CPPROFILER
 
@@ -454,6 +469,11 @@ namespace Gecode { namespace FlatZinc {
       SVR, // < Static Variable Relationship LNS
       NONE //< No LNS used by asset in FlatZincSpace.
     };
+    enum LNSAnnType {
+      NO_LNS_ANN,
+      ONLY_VARS_ANN,
+      FULL_LNS_ANN
+    };
 
     int getintVarCount() const { return intVarCount; }
     int getboolVarCount() const { return boolVarCount; }
@@ -495,6 +515,7 @@ namespace Gecode { namespace FlatZinc {
     AST::Array* _solveAnnotations;
 
     LNSType _lnsType;
+    LNSAnnType _lnsAnnType;
 
     LNSstrategies _lnsStrategy;
 
@@ -540,8 +561,6 @@ namespace Gecode { namespace FlatZinc {
     // Gecode::IntVarArray non_fzn_introduced_vars;
     double** variable_relations;
     CIGInfo* ciglns_info;
-
-    bool hasLNSann;
 
     /* === Experimental `on_restart` support === */
     class OnRestartHandle : public SharedHandle {
