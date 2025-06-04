@@ -1,22 +1,7 @@
-# Gecode-dexter
+# Gecode - Dependency-Curated LNS
 
-A possible improvement of the Gecode solver, done for my master thesis.
-The final thesis report can be found [here](https://www.diva-portal.org/smash/record.jsf?pid=diva2%3A1876143&dswid=-6428)
+This repository contains an extension of [the Gecode-based information-sharing portfolio solver of Dexter Leander](https://github.com/ddxter/gecode-dexter), which was part of [his master thesis](https://www.diva-portal.org/smash/record.jsf?pid=diva2%3A1876143&dswid=-6428). 
 
-## Run solver
-Example usage: 
-```
-minizinc -s --solver dexter -p numthreads --fzn-flags "--use-pbs" mznfile dznfile
-```
+This extended solver was used for running the experiments for the Dependency-Curated LNS paper. 
 
-## Download Gecode
-
-Gecode packages (source, Apple MacOS, Microsoft Windows) can be downloaded from
-[GitHub](https://github.com/Gecode/gecode/releases)
-or
-[Gecode's webpages](https://gecode.github.io/download.html).
-
-## Gecode License
-
-Gecode is licensed under the
-[MIT license](https://github.com/Gecode/gecode/blob/master/LICENSE).
+Information on how to run the Dependecy-Curated LNS experiments can be run can be [found in this repository](https://github.com/astra-uu-se/gecode-lns-experiments)
