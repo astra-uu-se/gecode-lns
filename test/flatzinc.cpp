@@ -64,8 +64,9 @@ namespace Test { namespace FlatZinc {
       fg = Gecode::FlatZinc::parse(ss, p, olog);
 
       if (fg) {
+        BranchModifier bm(false, false, false);
         fg->createBranchers(p, fg->solveAnnotations(), fznopt,
-                            false, olog);
+                            false, bm, olog);
         fg->shrinkArrays(p);
         std::ostringstream os;
         fg->run(os, p, fznopt, t_total);

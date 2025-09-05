@@ -47,11 +47,13 @@ const FlatZincSpace* getLast(FlatZincSpace& fzs, const MetaInfo& mi) {
 }
 
 bool applyInitialSolution(FlatZincSpace& fzs, const MetaInfo& mi) {
-  if (fzs.lnsInitialSolution().size() == 0 || fzs.iv_lns.size() == 0 || hasLast(fzs, mi)) {
+  if (fzs.lnsInitialSolution().empty() || hasLast(fzs, mi)) {
     return true;
   }
-  for (int i = 0; i < fzs.iv_lns.size(); ++i) {
-    rel(fzs, fzs.iv_lns[i], IRT_EQ, fzs.lnsInitialSolution()[i]);
+  for (int i = 0; i < fzs.lnsInitialSolution().size(); i++) {
+    const int index = fzs.lnsInitialSolution()[i].first;
+    const int val = fzs.lnsInitialSolution()[i].second;
+    rel(fzs, fzs.iv[index], IRT_EQ, val);
   }
   fzs.status();
   return false;

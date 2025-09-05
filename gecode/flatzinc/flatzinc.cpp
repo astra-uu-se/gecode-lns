@@ -911,7 +911,7 @@ namespace Gecode { namespace FlatZinc {
     _optVar(-1),
     _optVarIsInt(true),
     _lns(nullptr),
-    _lnsInitialSolution(0),
+    _lnsInitialSolution(),
     _random(random),
     _solveAnnotations(nullptr),
     default_iv_obj_relax_indices(),
@@ -1396,14 +1396,15 @@ namespace Gecode { namespace FlatZinc {
             if (vars->a.size() != initial->a.size()) {
               throw FlatZinc::Error("FlatZinc", "Arrays to relax_and_reconstruct must have same size");
             }
-            _lnsInitialSolution = IntSharedArray(iv_lns.size());
-            k = 0;
-            for (unsigned int i=0; i < initial->a.size(); i++) {
-              if (vars->a[i]->isInt()) {
-                continue;
+            if (!_lnsInitialSolution.empty()) {
+              throw FlatZinc::Error("FlatZinc", "Only one initial solution allowed");
+            }
+            _lnsInitialSolution.reserve(initial->a.size());
+            for (unsigned int j = 0; j < initial->a.size(); j++) {
+              if (!vars->a[j]->isInt()) {
+                _lnsInitialSolution.emplace_back(vars->a[j]->getIntVar(), initial->a[j]->getInt());
               }
-              _lnsInitialSolution[k++] = initial->a[i]->getInt();
-              }
+            }
           }
           if (freezePercentage < 0 || 100 < freezePercentage){
             (*_lns) = default_lns;
@@ -1413,7 +1414,7 @@ namespace Gecode { namespace FlatZinc {
             _lnsAnnType = LNSAnnType::FULL_LNS_ANN;
           }
         } else if (flatAnn[i]->isCall("lns_warm_start")) {
-          if (_lnsInitialSolution.size() != 0 || iv_lns.size() != 0)
+          if (!_lnsInitialSolution.empty())
             throw FlatZinc::Error("FlatZinc", "Only one lns_warm_start annotation allowed");
           AST::Call *call = flatAnn[i]->getCall("lns_warm_start");
           AST::Array* args = call->getArgs(2);
@@ -1422,22 +1423,11 @@ namespace Gecode { namespace FlatZinc {
           if (vars->a.size() != initial->a.size()) {
             throw FlatZinc::Error("FlatZinc", "Arrays to lns_warm_start must have same size");
           }
-          int k = vars->a.size();
-          for (int i = vars->a.size(); i--;) {
-            if (vars->a[i]->isInt()){
-              k--;
+          _lnsInitialSolution.reserve(vars->a.size());
+          for (unsigned int j=0; j < initial->a.size(); j++) {
+            if (!vars->a[j]->isInt()) {
+              _lnsInitialSolution.emplace_back(vars->a[j]->getIntVar(), initial->a[j]->getInt());
             }
-          }
-          iv_lns = IntVarArray(*this, k);
-          _lnsInitialSolution = IntSharedArray(k);
-          k = 0;
-          for (size_t i = 0; i < vars->a.size(); i++) {
-            if (vars->a[i]->isInt()) {
-              continue;
-            }
-            iv_lns[k] = iv[vars->a[i]->getIntVar()];
-            _lnsInitialSolution[k] = initial->a[i]->getInt();
-            k++;
           }
         } else if (flatAnn[i]->isCall("gecode_search")) {
           AST::Call* c = flatAnn[i]->getCall();

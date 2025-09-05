@@ -40,6 +40,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <gecode/kernel.hh>
 #include <gecode/int.hh>
 #ifdef GECODE_HAS_SET_VARS
@@ -506,7 +507,7 @@ namespace Gecode { namespace FlatZinc {
     unsigned int default_lns;
 
     /// Initial solution to start the LNS (or nullptr for no LNS)
-    IntSharedArray _lnsInitialSolution;
+    std::vector<std::pair<int,int>> _lnsInitialSolution;
 
     /// Random number generator
     Rnd _random;
@@ -556,7 +557,7 @@ namespace Gecode { namespace FlatZinc {
     const bool hasLnsVarAnn() const {
       return _lnsAnnType != LNSAnnType::NO_LNS_ANN;
     }
-    const IntSharedArray& lnsInitialSolution() const {
+    const std::vector<std::pair<int, int>>& lnsInitialSolution() const {
       return _lnsInitialSolution;
     }
     Gecode::Rnd& random() {
