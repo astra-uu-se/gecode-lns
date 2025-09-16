@@ -36,10 +36,10 @@ namespace Gecode { namespace Search {
   forceinline
   Options::Options(void)
     : clone(Config::clone),
-      threads(Config::threads),
+      numThreads(Config::numThreads),
       c_d(Config::c_d), a_d(Config::a_d),
       d_l(Config::d_l),
-      assets(0), slice(Config::slice), nogoods_limit(0),
+      numAssets(0), sliceSize(Config::slice), nogoods_limit(0),
       stop(nullptr), cutoff(nullptr), tracer(nullptr) {}
 
 }}

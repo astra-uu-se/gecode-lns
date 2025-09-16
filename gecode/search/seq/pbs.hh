@@ -48,7 +48,7 @@ namespace Gecode { namespace Search { namespace Seq {
   };
 
   /// Stop object used for controlling slaves in a portfolio
-  class GECODE_SEARCH_EXPORT PortfolioStop : public Stop {
+  class GECODE_SEARCH_EXPORT AssetSearchStop : public Stop {
   private:
     /// The stop object for the slaves
     Stop* so;
@@ -56,7 +56,7 @@ namespace Gecode { namespace Search { namespace Seq {
     SharedStopInfo* ssi;
   public:
     /// Initialize
-    PortfolioStop(Stop* so);
+    AssetSearchStop(Stop* so);
     /// Initialize shared stop information
     void share(SharedStopInfo* ssi);
     /// Return true if portfolio engine must be stopped
@@ -95,14 +95,14 @@ namespace Gecode { namespace Search { namespace Seq {
 
   /// Sequential portfolio engine implementation
   template<bool best>
-  class GECODE_SEARCH_EXPORT PBS : public Engine {
+  class GECODE_SEARCH_EXPORT assetSearch : public Engine {
   protected:
     /// Master statistics
     Statistics stat;
     /// Shared slave information
     SharedStopInfo ssi;
     /// Size of a slice
-    unsigned int slice;
+    unsigned int sliceSize;
     /// Slaves
     Slave* slaves;
     /// Number of slave engines
@@ -113,7 +113,7 @@ namespace Gecode { namespace Search { namespace Seq {
     bool slave_stop;
   public:
     /// Initialize
-    PBS(Engine** slaves, Stop** stops, unsigned int n,
+    assetSearch(Engine** slaves, Stop** stops, unsigned int n,
         const Statistics& stat, const Search::Options& opt);
     /// Return next solution (nullptr, if none exists or search has been stopped)
     virtual Space* next(void);
@@ -124,7 +124,7 @@ namespace Gecode { namespace Search { namespace Seq {
     /// Constrain future solutions to be better than \a b
     virtual void constrain(const Space& b);
     /// Destructor
-    virtual ~PBS(void);
+    virtual ~assetSearch(void);
   };
 
 }}}

@@ -175,7 +175,7 @@ namespace Gecode { namespace FlatZinc {
     /// Check status of brancher, return true if alternatives left.
     virtual bool status(const Space& _home) const {
       if (done) return false;
-      const FlatZincSpace& home = static_cast<const FlatZincSpace&>(_home);
+      const auto& home = dynamic_cast<const FlatZincSpace&>(_home);
       for (int i=0; i<home.iv_aux.size(); i++)
         if (!home.iv_aux[i].assigned()) return true;
       for (int i=0; i<home.bv_aux.size(); i++)
@@ -220,14 +220,14 @@ namespace Gecode { namespace FlatZinc {
     }
     /// Perform commit for choice \a c
     virtual ExecStatus commit(Space&, const Gecode::Choice& c, unsigned int) {
-      return static_cast<const Choice&>(c).fail ? ES_FAILED : ES_OK;
+      return dynamic_cast<const Choice&>(c).fail ? ES_FAILED : ES_OK;
     }
     /// Print explanation
     virtual void print(const Space&, const Gecode::Choice& c,
                        unsigned int,
                        std::ostream& o) const {
       o << "FlatZinc("
-        << (static_cast<const Choice&>(c).fail ? "fail" : "ok")
+        << (dynamic_cast<const Choice&>(c).fail ? "fail" : "ok")
         << ")";
     }
     /// Copy brancher
@@ -333,13 +333,13 @@ namespace Gecode { namespace FlatZinc {
   void
   BranchInformation::print(const Brancher& b, unsigned int a, int i,
                            int n, std::ostream& o) const {
-    static_cast<const BranchInformationO*>(object())->print(b,a,i,n,o);
+    dynamic_cast<const BranchInformationO*>(object())->print(b,a,i,n,o);
   }
 #ifdef GECODE_HAS_FLOAT_VARS
   void
   BranchInformation::print(const Brancher& b, unsigned int a, int i,
                            const FloatNumBranch& nl, std::ostream& o) const {
-    static_cast<const BranchInformationO*>(object())->print(b,a,i,nl,o);
+    dynamic_cast<const BranchInformationO*>(object())->print(b,a,i,nl,o);
   }
 #endif
   template<class Var>
@@ -347,7 +347,7 @@ namespace Gecode { namespace FlatZinc {
                    unsigned int a,
                    Var, int i, const int& n,
                    std::ostream& o) {
-    static_cast<const FlatZincSpace&>(home).branchInfo.print(b,a,i,n,o);
+    dynamic_cast<const FlatZincSpace&>(home).branchInfo.print(b,a,i,n,o);
   }
 
 #ifdef GECODE_HAS_FLOAT_VARS
@@ -355,7 +355,7 @@ namespace Gecode { namespace FlatZinc {
                     unsigned int a,
                     FloatVar, int i, const FloatNumBranch& nl,
                     std::ostream& o) {
-    static_cast<const FlatZincSpace&>(home).branchInfo.print(b,a,i,nl,o);
+    dynamic_cast<const FlatZincSpace&>(home).branchInfo.print(b,a,i,nl,o);
   }
 #endif
 
@@ -815,7 +815,7 @@ namespace Gecode { namespace FlatZinc {
 #ifdef GECODE_HAS_FLOAT_VARS
       step(f.step),
 #endif
-      pbs_current_best_sol(f.pbs_current_best_sol),
+      _incumbentSolution(f._incumbentSolution),
       optimum_found(f.optimum_found),
       needAuxVars(f.needAuxVars)
       {
@@ -824,7 +824,6 @@ namespace Gecode { namespace FlatZinc {
       _method = f._method;
       _lns = f._lns;
       default_lns = f.default_lns;
-      _lnsInitialSolution = f._lnsInitialSolution;
       branchInfo = f.branchInfo;
       iv.update(*this, f.iv);
 
@@ -911,7 +910,6 @@ namespace Gecode { namespace FlatZinc {
     _optVar(-1),
     _optVarIsInt(true),
     _lns(nullptr),
-    _lnsInitialSolution(),
     _random(random),
     _solveAnnotations(nullptr),
     default_iv_obj_relax_indices(),
@@ -921,7 +919,7 @@ namespace Gecode { namespace FlatZinc {
     variable_impacts(nullptr),
     ciglns_info(nullptr),
     _lnsAnnType(LNSAnnType::NO_LNS_ANN),
-    pbs_current_best_sol(nullptr),
+    _incumbentSolution(nullptr),
     optimum_found(nullptr),
     needAuxVars(true) {
     branchInfo.init();
@@ -950,6 +948,24 @@ namespace Gecode { namespace FlatZinc {
     fv = FloatVarArray(*this, floatVars);
     fv_introduced = std::vector<bool>(2*floatVars);
 #endif
+  }
+
+  FlatZincSpace* FlatZincSpace::deepClone(std::shared_ptr<IncumbentSolution>& incumbentSolution, std::shared_ptr<std::atomic<bool>>& optimumFound) const {
+    auto c = dynamic_cast<FlatZincSpace*>(clone());
+    // fzs = static_cast<FlatZincSpace*>(fg->copy());
+    // Set the solve annotations for the asset, as it does not follow from the clone.
+    c->_solveAnnotations = _solveAnnotations;
+    // Set the shared current best solutions between assets for each asset.
+    c->_incumbentSolution = incumbentSolution;
+    // Make space know if optimum has been found.
+    c->optimum_found = optimumFound;
+
+    // Copy iv,bv,sv_introduced vector from fg, as it does not follow the cloning process.
+    c->iv_introduced = iv_introduced;
+    c->bv_introduced = bv_introduced;
+    c->sv_introduced = sv_introduced;
+    c->iv_boolalias = iv_boolalias;
+    return c;
   }
 
   void
@@ -1196,8 +1212,8 @@ namespace Gecode { namespace FlatZinc {
 
     // For each variable present, map the iv index to the index that will be used in non_fzn_introduced_vars
     std::unordered_map<IntVar*, int> iv_lns_indices;
-    iv_lns_indices.reserve(hasLnsVarAnn() ? iv_lns.size() : 0);
-    if (hasLnsVarAnn()) {
+    iv_lns_indices.reserve(hasLnsVars() ? iv_lns.size() : 0);
+    if (hasLnsVars()) {
       for (int i = 0;  i < iv_lns.size(); ++i) {
         iv_lns_indices.emplace(&iv_lns[i], i);
       }
@@ -1206,20 +1222,20 @@ namespace Gecode { namespace FlatZinc {
     std::vector<int> num_vars(constraint_input_vars.size(), 0);
     for (size_t i = 0; i < constraint_input_vars.size(); i++) {
       for (const int var_index : constraint_input_vars[i]) {
-        if (!hasLnsVarAnn() || iv_lns_indices.find(&iv[var_index]) != iv_lns_indices.end()) {
+        if (!hasLnsVars() || iv_lns_indices.find(&iv[var_index]) != iv_lns_indices.end()) {
           ++num_vars[i];
         }
       }
     }
 
-    size_t size = hasLnsVarAnn() ? iv_lns.size() : iv.size();
+    size_t size = hasLnsVars() ? iv_lns.size() : iv.size();
     std::vector<int> num_constraints(size, 0);
     for (size_t i = 0; i < constraint_input_vars.size(); ++i) {
       if (constraint_input_vars[i].size() <= 1) {
         continue;
       }
       for (const int var_index : constraint_input_vars[i]) {
-        if (hasLnsVarAnn()) {
+        if (hasLnsVars()) {
           auto* var = &iv[var_index];
           if (iv_lns_indices.find(var) != iv_lns_indices.end()) {
             ++num_constraints.at(iv_lns_indices[var]);
@@ -1238,7 +1254,7 @@ namespace Gecode { namespace FlatZinc {
       for (auto iter1 = constraint_input_vars[i].begin(); iter1 != constraint_input_vars[i].end(); ++iter1) {
         auto iter2 = iter1;
         for (++iter2; iter2 != constraint_input_vars[i].end(); ++iter2){
-          if (hasLnsVarAnn()) {
+          if (hasLnsVars()) {
             auto* var1 = &iv[*iter1];
             auto* var2 = &iv[*iter2];
             if (iv_lns_indices.find(var1) != iv_lns_indices.end() && iv_lns_indices.find(var2) != iv_lns_indices.end()) {
@@ -1391,43 +1407,12 @@ namespace Gecode { namespace FlatZinc {
             }
             iv_lns[k++] = iv[vars->a[i]->getIntVar()];
           }
-          if (args->a.size()==3) {
-            AST::Array *initial = args->a[2]->getArray();
-            if (vars->a.size() != initial->a.size()) {
-              throw FlatZinc::Error("FlatZinc", "Arrays to relax_and_reconstruct must have same size");
-            }
-            if (!_lnsInitialSolution.empty()) {
-              throw FlatZinc::Error("FlatZinc", "Only one initial solution allowed");
-            }
-            _lnsInitialSolution.reserve(initial->a.size());
-            for (unsigned int j = 0; j < initial->a.size(); j++) {
-              if (!vars->a[j]->isInt()) {
-                _lnsInitialSolution.emplace_back(vars->a[j]->getIntVar(), initial->a[j]->getInt());
-              }
-            }
-          }
           if (freezePercentage < 0 || 100 < freezePercentage){
             (*_lns) = default_lns;
             _lnsAnnType = LNSAnnType::ONLY_VARS_ANN;
           } else {
             (*_lns) = freezePercentage;
             _lnsAnnType = LNSAnnType::FULL_LNS_ANN;
-          }
-        } else if (flatAnn[i]->isCall("lns_warm_start")) {
-          if (!_lnsInitialSolution.empty())
-            throw FlatZinc::Error("FlatZinc", "Only one lns_warm_start annotation allowed");
-          AST::Call *call = flatAnn[i]->getCall("lns_warm_start");
-          AST::Array* args = call->getArgs(2);
-          AST::Array *vars = args->a[0]->getArray();
-          AST::Array *initial = args->a[1]->getArray();
-          if (vars->a.size() != initial->a.size()) {
-            throw FlatZinc::Error("FlatZinc", "Arrays to lns_warm_start must have same size");
-          }
-          _lnsInitialSolution.reserve(vars->a.size());
-          for (unsigned int j=0; j < initial->a.size(); j++) {
-            if (!vars->a[j]->isInt()) {
-              _lnsInitialSolution.emplace_back(vars->a[j]->getIntVar(), initial->a[j]->getInt());
-            }
           }
         } else if (flatAnn[i]->isCall("gecode_search")) {
           AST::Call* c = flatAnn[i]->getCall();
@@ -1437,17 +1422,33 @@ namespace Gecode { namespace FlatZinc {
           AST::Array *args = call->getArgs(4);
           AST::Array *vars = args->a[0]->getArray();
           int k=vars->a.size();
-          for (int i=vars->a.size(); i--;)
-            if (vars->a[i]->isInt())
+          for (int i=vars->a.size(); i--;) {
+            if (vars->a[i]->isInt() || vars->a[i]->isBool()) {
               k--;
+            }
+          }
           IntVarArgs va(k);
           std::vector<std::string> names;
           k=0;
           for (unsigned int i=0; i<vars->a.size(); i++) {
-            if (vars->a[i]->isInt())
+            if (vars->a[i]->isInt() || vars->a[i]->isBool()) {
               continue;
-            va[k++] = iv[vars->a[i]->getIntVar()];
-            iv_searched[vars->a[i]->getIntVar()] = true;
+            }
+            int v_i = -1;
+            if (vars->a[i]->isIntVar()) {
+              v_i = vars->a[i]->getIntVar();
+            } else {
+              const int b_i = vars->a[i]->getBoolVar();
+              for (int i = 0; i < intVarCount; ++i) {
+                if (iv_boolalias[i] == b_i) {
+                  v_i = i;
+                  break;
+                }
+              }
+            }
+            assert(v_i >= 0);
+            va[k++] = iv[v_i];
+            iv_searched[v_i] = true;
             names.push_back(vars->a[i]->getVarName());
           }
           std::string r0, r1;
@@ -1886,8 +1887,211 @@ namespace Gecode { namespace FlatZinc {
 #endif
       }
     }
-
   }
+
+  int FlatZincSpace::compareObjectiveValue(const FlatZincSpace& other) const {
+    if (_method != other._method) {
+      throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different methods.");
+    }
+    if (_method == SAT) {
+      return 0;
+    }
+    if (_optVarIsInt != other._optVarIsInt) {
+      throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different objective variable types.");
+    }
+#ifdef GECODE_HAS_FLOAT_VARS
+    if (!_optVarIsInt) {
+      const FloatVal thisVal = fv[_optVar].min();
+      const FloatVal otherVal = other.fv[other._optVar].min();
+      const bool inStep = abs(thisVal - otherVal) <= step;
+      if (inStep) {
+        return 0;
+      }
+      return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
+    }
+#endif
+    const int thisVal = iv[_optVar].min();
+    const int otherVal = other.iv[other._optVar].min();
+    if (thisVal == otherVal) {
+      return 0;
+    }
+    return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
+  }
+
+  void FlatZincSpace::initIncumbentSolution(std::shared_ptr<IncumbentSolution> &solution) {
+    if (_incumbentSolution == nullptr) {
+      _incumbentSolution = solution;
+    }
+  }
+
+
+  void FlatZincSpace::populateLnsVars(const std::vector<ConExpr*>& conExpressions) {
+    if (iv_lns.size() > 0 || bv_lns.size() > 0 || fv_lns.size() > 0 || sv_lns.size() > 0) {
+      return;
+    }
+    std::vector<bool> int_vars(iv.size(), true);
+    std::vector<bool> bool_vars(bv.size(), true);
+    std::vector<bool> float_vars(fv.size(), true);
+    std::vector<bool> set_vars(sv.size(), true);
+    unsigned int iv_lns_size = iv.size();
+    unsigned int bv_lns_size = bv.size();
+    unsigned int fv_lns_size = fv.size();
+    unsigned int sv_lns_size = sv.size();
+
+    auto markDefinedVar = [&](AST::Node* var) -> void {
+      if (var->isInt() || var->isBool() || var->isFloat() || var->isSet()) {
+      } else if (var->isIntVar()) {
+        iv_lns_size -= int_vars[var->getIntVar()] ? 1 : 0;
+        int_vars[var->getIntVar()] = false;
+      } else if (var->isBoolVar()) {
+        bv_lns_size -= bool_vars[var->getBoolVar()] ? 1 : 0;
+        bool_vars[var->getBoolVar()] = false;
+      } else if (var->isFloatVar()) {
+        fv_lns_size -= float_vars[var->getFloatVar()] ? 1 : 0;
+        float_vars[var->getFloatVar()] = false;
+      } else if (var->isSetVar()) {
+        sv_lns_size -= set_vars[var->getSetVar()] ? 1 : 0;
+        set_vars[var->getSetVar()] = false;
+      }
+    };
+
+    for (const auto* ce : conExpressions) {
+      if (ce->ann == nullptr || ce->ann->a.empty()) {
+        continue;
+      }
+      for (size_t i = 0; i < ce->ann->a.size(); ++i) {
+        if (!ce->ann->a[i]->isCall("defines_var")) {
+          continue;
+        }
+
+        const auto* call = ce->ann->a[i]->getCall("defines_var");
+        auto* var = call->args;
+        if (var->isArray()) {
+          const auto* varArr = var->getArray();
+          for (size_t j = 0; j < varArr->a.size(); ++j) {
+            markDefinedVar(varArr->a[j]);
+          }
+        } else {
+          markDefinedVar(var);
+        }
+      }
+    }
+    iv_lns = IntVarArray(*this, iv_lns_size);
+    unsigned int j = 0;
+    for (unsigned int i = 0; i < int_vars.size(); ++i) {
+      if (int_vars[i]) {
+        iv_lns[j++] = iv[i];
+      }
+    }
+    bv_lns = BoolVarArray(*this, bv_lns_size);
+    j = 0;
+    for (unsigned int i = 0; i < bv_lns.size(); ++i) {
+      if (bool_vars[i]) {
+        bv_lns[j++] = bv[i];
+      }
+    }
+    fv_lns = FloatVarArray(*this, fv_lns_size);
+    j = 0;
+    for (unsigned int i = 0; i < fv_lns.size(); ++i) {
+      if (float_vars[i]) {
+        fv_lns[j++] = fv[i];
+      }
+    }
+    sv_lns = SetVarArray(*this, sv_lns_size);
+    j = 0;
+    for (unsigned int i = 0; i < sv_lns.size(); ++i) {
+      if (set_vars[i]) {
+        sv_lns[j++] = sv[i];
+      }
+    }
+  }
+
+  bool FlatZincSpace::hasInitialIncumbentSolution() const {
+    std::vector<AST::Node*> flatAnn;
+    if (_solveAnnotations->isArray()) {
+      flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
+    } else {
+      flatAnn.push_back(_solveAnnotations);
+    }
+
+    for (unsigned int i = 0; i < flatAnn.size(); ++i) {
+      if (flatAnn[i]->isCall("relax_and_reconstruct")) {
+        const AST::Call *call = flatAnn[i]->getCall("relax_and_reconstruct");
+        return call->args->getArray()->a.size() == 3;
+      }
+      if (flatAnn[i]->isCall("lns_warm_start")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void FlatZincSpace::applyInitialIncumbentSolution() {
+    if (_incumbentSolution == nullptr) {
+      throw std::runtime_error("FlatZincSpace::populateInitialIncumbentSolution: _incumbentSolution == nullptr");
+    }
+    if (_incumbentSolution->hasValue()) {
+      throw std::runtime_error("FlatZincSpace::populateInitialIncumbentSolution: _incumbentSolution already a solution");
+    }
+    std::vector<std::pair<int,int>> initialIncumbentSolution;
+
+    std::vector<AST::Node*> flatAnn;
+    if (_solveAnnotations->isArray()) {
+      flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
+    } else {
+      flatAnn.emplace_back(_solveAnnotations);
+    }
+
+    for (unsigned int i = 0; i < flatAnn.size(); ++i) {
+      if (flatAnn[i]->isCall("relax_and_reconstruct")) {
+        if (!initialIncumbentSolution.empty()) {
+          throw std::runtime_error("relax_and_reconstruct: already an initial solution");
+        }
+        AST::Call *call = flatAnn[i]->getCall("relax_and_reconstruct");
+        if (call->args->getArray()->a.size() != 3) {
+          continue;
+        }
+        const auto* args = call->getArgs(3);
+        const AST::Array *vars = args->a[0]->getArray();
+        const AST::Array* vals = args->a[1]->getArray();
+        if (vars->a.size() != vals->a.size()) {
+          throw std::runtime_error("relax_and_reconstruct: initial solution size mismatch");
+        }
+        for (unsigned int j = 0; j < vars->a.size(); ++j) {
+          if (!vars->a[j]->isInt()) {
+            initialIncumbentSolution.emplace_back(vars->a[j]->getIntVar(), vals->a[j]->getInt());
+          }
+        }
+      }
+      if (flatAnn[i]->isCall("lns_warm_start")) {
+        if (!initialIncumbentSolution.empty()) {
+          throw std::runtime_error("lns_warm_start: already an initial solution");
+        }
+        AST::Call *call = flatAnn[i]->getCall("lns_warm_start");
+        const auto* args = call->getArgs(2);
+        const AST::Array *vars = args->a[0]->getArray();
+        const AST::Array* vals = args->a[1]->getArray();
+        if (vars->a.size() != vals->a.size()) {
+          throw std::runtime_error("lns_warm_start: initial solution size mismatch");
+        }
+        for (unsigned int j = 0; j < vars->a.size(); ++j) {
+          if (!vars->a[j]->isInt()) {
+            initialIncumbentSolution.emplace_back(vars->a[j]->getIntVar(), vals->a[j]->getInt());
+          }
+        }
+      }
+    }
+    for (unsigned int i = 0; i < initialIncumbentSolution.size(); ++i) {
+      const int index = initialIncumbentSolution[i].first;
+      const int value = initialIncumbentSolution[i].second;
+      rel(*this, iv[index], IRT_EQ, value);
+    }
+    const auto stat = status();
+    if (stat != SS_SOLVED) {
+      throw std::runtime_error("supplied initial solution is a non-solution");
+    }
+  }
+
 
   AST::Array*
   FlatZincSpace::solveAnnotations(void) const {
@@ -2168,7 +2372,7 @@ namespace Gecode { namespace FlatZinc {
 #ifdef GECODE_HAS_FLOAT_VARS
     step = opt.step();
 #endif
-    o.threads = opt.threads();
+    o.numThreads = opt.threads();
     o.nogoods_limit = opt.nogoods() ? opt.nogoods_limit() : 0;
     o.cutoff  = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(opt));
     if (opt.interrupt())
@@ -2275,6 +2479,7 @@ namespace Gecode { namespace FlatZinc {
     BranchModifier bm(false, false, false);
     this->postConstraints(constraints, false);
     this->createBranchers(p, this->solveAnnotations(), opt, false, bm);
+    this->populateLnsVars(constraints);
     this->shrinkArrays(p);
 
     switch (_method) {
@@ -2288,14 +2493,16 @@ namespace Gecode { namespace FlatZinc {
     }
   }
 
-  void FlatZincSpace::runPBS(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
-    PBSController pbs(this, p);
+  void FlatZincSpace::runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
+    SearchController assetSearch(this, out, p, opt, t_total);
     switch (_method) {
     case MIN:
     case MAX:
     case SAT:
+      initIncumbentSolution(assetSearch._incumbentSolution);
       storeConstraintInformation();
-      pbs.controller(out, opt, t_total);
+      assetSearch.init();
+      assetSearch.run();
       break;
     // case SAT:
     //   runEngine<DFS>(out,p,opt,t_total);
@@ -2311,55 +2518,52 @@ namespace Gecode { namespace FlatZinc {
   void
   FlatZincSpace::constrain(const Space& s) {
     // If PBS, update global bounds.
-    FlatZincSpace* global_sol = nullptr;
-    if (pbs_current_best_sol != nullptr){
-        global_sol = pbs_current_best_sol->load();
-    }
-    
+    const auto global_solution = _incumbentSolution->load();
+
     if (_optVarIsInt) {
-      int local_sol = static_cast<const FlatZincSpace*>(&s)->iv[_optVar].val();
-      if (global_sol != nullptr){
-        int best_sol;
+      const int local_objective = dynamic_cast<const FlatZincSpace&>(s).iv[_optVar].val();
+      if (global_solution != nullptr) {
+        const int global_objective = global_solution->iv[global_solution->_optVar].val();
         if (_method == MIN){
-          best_sol = local_sol < global_sol->iv[global_sol->optVar()].val() ? local_sol : global_sol->iv[global_sol->optVar()].val();
-          rel(*this, iv[_optVar], IRT_LE, best_sol);
+          const int best_objective = std::min(local_objective, global_objective);
+          rel(*this, iv[_optVar], IRT_LE, best_objective);
         }
         else if (_method == MAX){
-          best_sol = local_sol > global_sol->iv[global_sol->optVar()].val() ? local_sol : global_sol->iv[global_sol->optVar()].val();
-          rel(*this, iv[_optVar], IRT_GR, best_sol);
-        } 
+          const int best_objective = std::max(local_objective, global_objective);
+          rel(*this, iv[_optVar], IRT_GR, best_objective);
+        }
       }
       // If not PBS or no solution has been found, update local bounds.
       else{
         if (_method == MIN){
-          rel(*this, iv[_optVar], IRT_LE, local_sol);
+          rel(*this, iv[_optVar], IRT_LE, local_objective);
         }
         else if (_method == MAX){
-          rel(*this, iv[_optVar], IRT_GR, local_sol);
+          rel(*this, iv[_optVar], IRT_GR, local_objective);
         } 
       }
     }
     else {
 #ifdef GECODE_HAS_FLOAT_VARS
-      if (global_sol != nullptr){
-        Gecode::FloatVal val = global_sol->fv[global_sol->optVar()].val();
-        Gecode::FloatVal best_sol;
+      const Gecode::FloatVal local_objective = dynamic_cast<const FlatZincSpace&>(s).fv[_optVar].val();
+      if (global_solution != nullptr) {
+        const Gecode::FloatVal global_objective = global_solution->fv[global_solution->_optVar].val();
         if (_method == MIN){
-          best_sol = val < fv[_optVar].val() ? val : fv[_optVar].val();
-          rel(*this, fv[_optVar], FRT_LE, best_sol-step);
+           const Gecode::FloatVal best_objective = std::min(local_objective, global_objective);
+          rel(*this, fv[_optVar], FRT_LE, best_objective-step);
         }
         else if (_method == MAX){
-          best_sol = val > fv[_optVar].val() ? val : fv[_optVar].val();
-          rel(*this, fv[_optVar], FRT_GR, best_sol+step);
+          const Gecode::FloatVal best_objective = std::max(local_objective, global_objective);
+          rel(*this, fv[_optVar], FRT_GR, best_objective+step);
         } 
       }
       else{
         if (_method == MIN){
-          rel(*this, fv[_optVar], FRT_LE, static_cast<const FlatZincSpace*>(&s)->fv[_optVar].val()-step);
+          rel(*this, fv[_optVar], FRT_LE, local_objective-step);
         }
           
         else if (_method == MAX){
-          rel(*this, fv[_optVar], FRT_GR, static_cast<const FlatZincSpace*>(&s)->fv[_optVar].val()+step);
+          rel(*this, fv[_optVar], FRT_GR, local_objective+step);
         }
       }
 
@@ -2367,24 +2571,24 @@ namespace Gecode { namespace FlatZinc {
     }
   }
 
-  bool
-  FlatZincSpace::slave(const MetaInfo& mi) {
-    if (mi.type() == MetaInfo::RESTART) {
+  std::optional<bool> FlatZincSpace::updateOnRestart(const MetaInfo& mi) {
+    if (mi.type() != MetaInfo::RESTART) {
+      return {};
       if (restart_data.initialized() && restart_data().mark_complete) {
         // Fail the space
         this->fail();
         // Return true to signal we are in the global search space
-        return true;
+        return {true};
       }
 
       bool ret = false;
       if (on_restart_iv.size() > 0) {
-        int base = 0;
+        unsigned int base = 0;
 
         // Assign the sol_int values (use lb if no solution is known)
-        const FlatZincSpace* last = static_cast<const FlatZincSpace*>(mi.last());
+        const auto last = std::dynamic_pointer_cast<const FlatZincSpace>(mi.last());
         assert(last == nullptr || last->on_restart_iv.size() == restart_data().on_restart_iv_sol);
-        for (int i = 0; i < restart_data().on_restart_iv_sol; ++i) {
+        for (unsigned int i = 0; i < restart_data().on_restart_iv_sol; ++i) {
           IntVar& outVar = on_restart_iv[base + restart_data().on_restart_iv_sol + i];
           int solVal = (last != nullptr) ? last->on_restart_iv[i].val() : on_restart_iv[base + i].min();
           rel(*this, outVar, IRT_EQ, solVal);
@@ -2397,10 +2601,10 @@ namespace Gecode { namespace FlatZinc {
         }
         base += restart_data().last_val_int.size();
 
-        // Assign uniform_int random values 
+        // Assign uniform_int random values
         for (size_t i = 0; i < restart_data().uniform_range_int.size(); ++i) {
           const auto& range = restart_data().uniform_range_int[i];
-          const int rndVal = range.first + _random(static_cast<unsigned int>(range.second - range.first));
+          const int rndVal = range.first + _random(range.second - range.first);
           rel(*this, on_restart_iv[base + i], IRT_EQ, rndVal);
         }
         base += restart_data().uniform_range_int.size();
@@ -2440,10 +2644,10 @@ namespace Gecode { namespace FlatZinc {
         ret = true;
       }
       if (on_restart_bv.size() > 0) {
-        int base = 0;
+        unsigned int base = 0;
 
         // Assign the sol_bool values (use lb if no solution is known)
-        const FlatZincSpace* last = static_cast<const FlatZincSpace*>(mi.last());
+        const auto last = std::dynamic_pointer_cast<const FlatZincSpace>(mi.last());
         assert(last == nullptr || last->on_restart_bv.size() == restart_data().on_restart_bv_sol);
         for (int i = 0; i < restart_data().on_restart_bv_sol; ++i) {
           BoolVar& outVar = on_restart_bv[base + restart_data().on_restart_bv_sol + i];
@@ -2470,12 +2674,12 @@ namespace Gecode { namespace FlatZinc {
       }
 #ifdef GECODE_HAS_SET_VARS
       if (on_restart_sv.size() > 0) {
-        int base = 0;
+        unsigned int base = 0;
 
         // Assign the sol_set values (use lb if no solution is known)
-        const FlatZincSpace* last = static_cast<const FlatZincSpace*>(mi.last());
+        const auto last = std::dynamic_pointer_cast<const FlatZincSpace>(mi.last());
         assert(last == nullptr || last->on_restart_sv.size() == restart_data().on_restart_sv_sol);
-        for (int i = 0; i < restart_data().on_restart_sv_sol; ++i) {
+        for (unsigned int i = 0; i < restart_data().on_restart_sv_sol; ++i) {
           SetVar& outVar = on_restart_sv[base + restart_data().on_restart_sv_sol + i];
           Set::GlbRanges<Set::SetView> lb(last != nullptr ? last->on_restart_sv[i] : on_restart_sv[base + i]);
           IntSet val(lb);
@@ -2502,10 +2706,10 @@ namespace Gecode { namespace FlatZinc {
 #endif
 #ifdef GECODE_HAS_FLOAT_VARS
       if (on_restart_fv.size() > 0) {
-        int base = 0;
+        unsigned int base = 0;
 
         // Assign the sol_float values (use lb if no solution is known)
-        const FlatZincSpace* last = static_cast<const FlatZincSpace*>(mi.last());
+        const auto last = std::dynamic_pointer_cast<const FlatZincSpace>(mi.last());
         assert(last == nullptr || last->on_restart_fv.size() == restart_data().on_restart_fv_sol);
         for (int i = 0; i < restart_data().on_restart_fv_sol; ++i) {
           FloatVar& outVar = on_restart_fv[base + restart_data().on_restart_fv_sol + i];
@@ -2520,7 +2724,7 @@ namespace Gecode { namespace FlatZinc {
         }
         base += restart_data().last_val_float.size();
 
-        // Assign uniform_float random values 
+        // Assign uniform_float random values
         for (size_t i = 0; i < restart_data().uniform_range_float.size(); ++i) {
           const auto& range = restart_data().uniform_range_float[i];
           /* rndVal will be an element of [range.first, range.second] */
@@ -2541,14 +2745,24 @@ namespace Gecode { namespace FlatZinc {
       }
 #endif
       if (ret) {
-        return false;
+        return {false};
       }
     }
 
-    if (mi.type() == MetaInfo::RESTART && _lnsAnnType != LNSAnnType::FULL_LNS_ANN && mi.restart() != 0 && mi.restart() > *last_best_restart){
+    if (_lnsAnnType != FULL_LNS_ANN && mi.restart() != 0 && mi.restart() > *last_best_restart){
       const unsigned long diff = mi.restart() - *last_best_restart;
       const int change = diff > 50 ? 1 : -1;
       *_lns = std::max<int>(5, std::min<int>(90, static_cast<int>(*_lns) + change));
+    }
+    return {};
+  }
+
+
+  bool
+  FlatZincSpace::slave(const MetaInfo& mi) {
+    auto ret = updateOnRestart(mi);
+    if (ret.has_value()) {
+      return *ret;
     }
 
     // Depending on the type of LNS, apply it and return false.
@@ -2975,7 +3189,7 @@ namespace Gecode { namespace FlatZinc {
 
   void
   Printer::init(AST::Array* output) {
-    _output = output;
+    _output = std::shared_ptr<AST::Array>(output);
   }
 
   void
@@ -3452,9 +3666,7 @@ namespace Gecode { namespace FlatZinc {
 #endif
   }
 
-  Printer::~Printer(void) {
-    delete _output;
-  }
+  Printer::~Printer(void) { }
 
 }}
 

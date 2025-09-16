@@ -426,7 +426,7 @@ namespace Gecode {
     Driver::StringOption      _search;        ///< Search options
     Driver::UnsignedLongLongIntOption
                               _solutions;     ///< How many solutions
-    Driver::DoubleOption      _threads;       ///< How many threads to use
+    Driver::UnsignedIntOption _numThreads;    ///< How many threads to use
     Driver::UnsignedIntOption _c_d;           ///< Copy recomputation distance
     Driver::UnsignedIntOption _a_d;           ///< Adaptive recomputation distance
     Driver::UnsignedIntOption _d_l;           ///< Discrepancy limit for LDS
@@ -535,9 +535,9 @@ namespace Gecode {
     unsigned long long int solutions(void) const;
 
     /// Set number of parallel threads
-    void threads(double n);
+    void threads(unsigned int n);
     /// Return number of parallel threads
-    double threads(void) const;
+    unsigned int threads(void) const;
 
     /// Set default copy recomputation distance
     void c_d(unsigned int d);

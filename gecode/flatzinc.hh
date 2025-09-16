@@ -40,6 +40,7 @@
 
 #include <iostream>
 #include <memory>
+#include <atomic>
 #include <optional>
 #include <gecode/kernel.hh>
 #include <gecode/int.hh>
@@ -92,6 +93,8 @@
 #include <gecode/flatzinc/branchmodifier.hh>
 #include <gecode/flatzinc/lnsstrategies.hh>
 
+class SearchController;
+
 struct ConsVarInfo {
     std::vector<AST::Array*> vars;
     double weight;
@@ -129,7 +132,7 @@ namespace Gecode { namespace FlatZinc {
     /// Names of set variables
     std::vector<std::string> sv_names;
 #endif
-    AST::Array* _output;
+    std::shared_ptr<AST::Array> _output;
     void printElem(std::ostream& out,
                    AST::Node* ai,
                    const Gecode::IntVarArray& iv,
@@ -230,6 +233,43 @@ namespace Gecode { namespace FlatZinc {
     Printer& operator=(const Printer&);
   };
 
+  class IncumbentSolution {
+    std::mutex _mutex;
+    std::shared_ptr<const FlatZincSpace> _space{nullptr};
+  public:
+    IncumbentSolution() = default;
+
+    std::shared_ptr<const FlatZincSpace> load() {
+      _mutex.lock();
+      auto space = _space;
+      _mutex.unlock();
+      return space;
+    }
+
+    std::shared_ptr<FlatZincSpace> save(std::shared_ptr<FlatZincSpace> space) {
+      if (space == nullptr) {
+        throw std::runtime_error("IncumbentSolution::save: cannot save nullptr");
+      }
+      _mutex.lock();
+      _space = space;
+      _mutex.unlock();
+      return space;
+    }
+
+    bool compare_exchange_strong(const std::shared_ptr<const FlatZincSpace>& expected, std::shared_ptr<FlatZincSpace> desired) {
+      _mutex.lock();
+      const bool ret = _space == expected;
+      if (ret) {
+        _space = std::move(desired);
+      }
+      _mutex.unlock();
+      return ret;
+    }
+
+    [[nodiscard]] bool hasValue() const { return _space != nullptr; }
+
+  };
+
   /**
    * \brief %Options for running %FlatZinc models
    *
@@ -282,7 +322,7 @@ namespace Gecode { namespace FlatZinc {
       _solutions("n","number of solutions (0 = all, -1 = one/best)",-1),
       _allSolutions("a", "return all solutions (equal to -n 0)"),
       _threads("p","number of threads (0 = #processing units)",
-               Gecode::Search::Config::threads),
+               Gecode::Search::Config::numThreads),
       _free("f", "free search, no need to follow search-specification"),
       _decay("decay","decay factor",0.99),
       _c_d("c-d","recomputation commit distance",Gecode::Search::Config::c_d),
@@ -376,7 +416,7 @@ namespace Gecode { namespace FlatZinc {
     bool fullStatistics(void) const { return _full_s.value(); } // ADDED
     int solutions(void) const { return _solutions.value(); }
     bool allSolutions(void) const { return _allSolutions.value(); }
-    double threads(void) const { return _threads.value(); }
+    unsigned int threads(void) const { return _threads.value(); }
     bool free(void) const { return _free.value(); }
     unsigned int c_d(void) const { return _c_d.value(); }
     unsigned int a_d(void) const { return _a_d.value(); }
@@ -401,7 +441,7 @@ namespace Gecode { namespace FlatZinc {
     double restart_base(void) const { return _r_base.value(); }
     void restart_base(double d) { _r_base.value(d); }
     unsigned int restart_scale(void) const { return _r_scale.value(); }
-    void restart_scale(int i) { _r_scale.value(i); }
+    void restart_scale(unsigned int i) { _r_scale.value(i); }
     unsigned long long int restart_limit(void) const { return _r_limit.value(); }
     bool nogoods(void) const { return _nogoods.value(); }
     unsigned int nogoods_limit(void) const { return _nogoods_limit.value(); }
@@ -506,9 +546,6 @@ namespace Gecode { namespace FlatZinc {
     std::shared_ptr<unsigned int> _lns;
     unsigned int default_lns;
 
-    /// Initial solution to start the LNS (or nullptr for no LNS)
-    std::vector<std::pair<int,int>> _lnsInitialSolution;
-
     /// Random number generator
     Rnd _random;
 
@@ -537,6 +574,8 @@ namespace Gecode { namespace FlatZinc {
 
     void
     branchWithPlugin(AST::Node* ann);
+
+    std::optional<bool> updateOnRestart(const MetaInfo&);
   public:
     /// The integer variables
     Gecode::IntVarArray iv;
@@ -546,7 +585,11 @@ namespace Gecode { namespace FlatZinc {
     /// The indices in this->iv used for the objective relaxation asset:
     std::shared_ptr<std::vector<int>> default_iv_obj_relax_indices;
     
-    Gecode::IntVarArray iv_lns;
+    IntVarArray iv_lns;
+    BoolVarArray bv_lns;
+    FloatVarArray fv_lns;
+    SetVarArray sv_lns;
+    
     // Gecode::IntVarArray iv_lns_default;
     // Gecode::IntVarArray iv_lns_obj_relax;
     // Gecode::IntVarArray non_fzn_introduced_vars;
@@ -554,11 +597,8 @@ namespace Gecode { namespace FlatZinc {
     const int freezePercent() const {
       return *_lns;
     }
-    const bool hasLnsVarAnn() const {
-      return _lnsAnnType != LNSAnnType::NO_LNS_ANN;
-    }
-    const std::vector<std::pair<int, int>>& lnsInitialSolution() const {
-      return _lnsInitialSolution;
+    const bool hasLnsVars() const {
+      return 0 < iv_lns.size() && iv_lns.size() < iv.size();
     }
     Gecode::Rnd& random() {
       return _random;
@@ -665,8 +705,10 @@ namespace Gecode { namespace FlatZinc {
     Gecode::FloatNum step;
 #endif
     // The current best solution, used in constrain between all assets in pbs. ADDED
-    std::atomic<FlatZincSpace*>* pbs_current_best_sol;
-    std::atomic<bool>* optimum_found;
+    std::shared_ptr<IncumbentSolution> _incumbentSolution;
+    std::shared_ptr<std::mutex> _incumbentSolutionMutex;
+
+    std::shared_ptr<std::atomic<bool>> optimum_found;
     /// Whether the introduced variables still need to be copied
     bool needAuxVars;
 
@@ -678,6 +720,8 @@ namespace Gecode { namespace FlatZinc {
 
     /// Initialize space with given number of variables
     void init(int intVars, int boolVars, int setVars, int floatVars);
+
+    FlatZincSpace* deepClone(std::shared_ptr<IncumbentSolution>& incumbentSolution, std::shared_ptr<std::atomic<bool>>& optimumFound) const;
 
     /// Create new integer variable from specification
     void newIntVar(IntVarSpec* vs);
@@ -707,7 +751,7 @@ namespace Gecode { namespace FlatZinc {
     void run(std::ostream& out, Printer& p,
              FlatZincOptions& opt, Gecode::Support::Timer& t_total);
 
-    void runPBS(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Gecode::Support::Timer& t_total);
+    void runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Gecode::Support::Timer& t_total);
 
     /// Produce output on \a out using \a p
     void print(std::ostream& out, const Printer& p) const;
@@ -753,6 +797,11 @@ namespace Gecode { namespace FlatZinc {
     void createBranchers(Printer& p, AST::Node* ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err = std::cerr);
 
     void deletePBSArrays();
+    void initIncumbentSolution(std::shared_ptr<IncumbentSolution>& solution);
+    void populateLnsVars(const std::vector<ConExpr*>&);
+    [[nodiscard]] int compareObjectiveValue(const FlatZincSpace& other) const;
+    [[nodiscard]] bool hasInitialIncumbentSolution() const;
+    void applyInitialIncumbentSolution();
     void storeConstraintInformation();
 
     /// Return the solve item annotations

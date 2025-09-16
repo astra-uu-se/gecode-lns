@@ -48,17 +48,17 @@ namespace Gecode { namespace Search { namespace Seq {
     /// The failure limit for the engine
     unsigned long long int l;
     /// The stop object for the meta engine
-    Stop* m_stop;
+    Stop& m_stop;
     /// Whether the engine was stopped
     bool e_stopped;
     /// Whether portfolio based search has found a solution.
-    std::atomic<bool>* optimum_found;
+    std::shared_ptr<std::atomic<bool>> optimum_found;
     /// Accumulated statistics for the meta engine
     Statistics m_stat;
   public:
     /// Stop the meta engine if indicated by the stop object \a s
-    RestartStop(Stop* s);
-    RestartStop(Stop* s, std::atomic<bool>* optimum_found);
+    RestartStop(Stop& s);
+    RestartStop(Stop& s, std::shared_ptr<std::atomic<bool>> optimum_found);
     /// Return true if meta engine must be stopped
     virtual bool stop(const Statistics& s, const Options& o);
     /// Set current limit for the engine to \a l fails
@@ -73,19 +73,24 @@ namespace Gecode { namespace Search { namespace Seq {
 
   /// Engine for restart-based search
   class GECODE_SEARCH_EXPORT RBS : public Engine {
+    /// returns false if solving fails (SS_FAILED)
+    bool doRestart();
+    bool initNext(const MetaInfo&);
+    bool slave(MetaInfo& mi);
+
   protected:
     /// The actual engine
     Engine* e;
     /// The master space to restart from
-    Space* master;
+    std::shared_ptr<Space> master;
     /// The last solution space (possibly nullptr)
-    Space* last;
+    std::shared_ptr<Space> last;
     /// The cutoff object
     Cutoff* co;
     /// The stop control object
     RestartStop* stop;
     /// How many solutions since the last restart
-    unsigned long int sslr;
+    unsigned long int solutionsSinceLastRestart;
     /// Whether search for the next solution will be complete
     bool complete;
     /// Whether a restart must be performed when next is called

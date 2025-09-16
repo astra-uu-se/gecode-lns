@@ -41,7 +41,7 @@ namespace Gecode { namespace Search {
     throw NoBest("Engine::constrain");
   }
   void
-  Engine::reset(Space* s) {
+  Engine::reset(std::shared_ptr<Space> s) {
     (void) s;
   }
   NoGoods&

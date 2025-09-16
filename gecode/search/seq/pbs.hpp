@@ -37,10 +37,10 @@ namespace Gecode { namespace Search { namespace Seq {
 
 
   forceinline
-  PortfolioStop::PortfolioStop(Stop* so0)
+  AssetSearchStop::AssetSearchStop(Stop* so0)
     : so(so0) {}
   forceinline void
-  PortfolioStop::share(SharedStopInfo* ssi0) {
+  AssetSearchStop::share(SharedStopInfo* ssi0) {
     ssi = ssi0;
   }
 
@@ -77,24 +77,24 @@ namespace Gecode { namespace Search { namespace Seq {
 
   template<bool best>
   forceinline
-  PBS<best>::PBS(Engine** e, Stop** s, unsigned int n,
+  assetSearch<best>::assetSearch(Engine** e, Stop** s, unsigned int n,
                  const Statistics& stat0,
                  const Search::Options& opt)
-    : stat(stat0), slice(opt.slice),
+    : stat(stat0), sliceSize(opt.sliceSize),
       slaves(heap.alloc<Slave>(n)), n_slaves(n), cur(0),
       slave_stop(false) {
     ssi.done = false;
-    ssi.l = opt.slice;
+    ssi.l = opt.sliceSize;
 
     for (unsigned int i=0U; i<n; i++) {
-      slaves[i].init(e[i],static_cast<PortfolioStop*>(s[i]));
-      static_cast<PortfolioStop*>(s[i])->share(&ssi);
+      slaves[i].init(e[i], dynamic_cast<AssetSearchStop*>(s[i]));
+      dynamic_cast<AssetSearchStop*>(s[i])->share(&ssi);
     }
   }
 
   template<bool best>
   Space*
-  PBS<best>::next(void) {
+  assetSearch<best>::next(void) {
     slave_stop = false;
     unsigned int n_exhausted = 0;
     while (n_slaves > 0) {
@@ -127,7 +127,7 @@ namespace Gecode { namespace Search { namespace Seq {
       if (n_exhausted == n_slaves) {
         n_exhausted = 0;
         // Increment by one slice
-        ssi.l += slice;
+        ssi.l += sliceSize;
       }
       if (cur == n_slaves)
         cur = 0;
@@ -137,13 +137,13 @@ namespace Gecode { namespace Search { namespace Seq {
 
   template<bool best>
   bool
-  PBS<best>::stopped(void) const {
+  assetSearch<best>::stopped(void) const {
     return slave_stop;
   }
 
   template<bool best>
   Statistics
-  PBS<best>::statistics(void) const {
+  assetSearch<best>::statistics(void) const {
     Statistics s(stat);
     for (unsigned int i=0U; i<n_slaves; i++)
       s += slaves[i].statistics();
@@ -152,7 +152,7 @@ namespace Gecode { namespace Search { namespace Seq {
 
   template<bool best>
   void
-  PBS<best>::constrain(const Space& b) {
+  assetSearch<best>::constrain(const Space& b) {
     if (!best)
       throw NoBest("PBS::constrain");
     for (unsigned int i=0U; i<n_slaves; i++)
@@ -160,7 +160,7 @@ namespace Gecode { namespace Search { namespace Seq {
   }
 
   template<bool best>
-  PBS<best>::~PBS(void) {
+  assetSearch<best>::~assetSearch(void) {
     for (unsigned int i=0U; i<n_slaves; i++)
       slaves[i].~Slave();
     // Note that n_slaves might be different now!

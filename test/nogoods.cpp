@@ -235,7 +235,7 @@ namespace Test {
           Search::NodeStop ns(Model::nodeinc());
           Search::Options o;
           o.stop = &ns;
-          o.threads = t;
+          o.numThreads = t;
           o.nogoods_limit = 256U;
           Search::Engine* e = Search::dfsengine(m,o);
           while (true) {

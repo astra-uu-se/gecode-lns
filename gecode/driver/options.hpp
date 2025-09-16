@@ -318,12 +318,12 @@ namespace Gecode {
   }
 
   inline void
-  Options::threads(double n) {
-    _threads.value(n);
+  Options::threads(unsigned int n) {
+    _numThreads.value(n);
   }
-  inline double
+  inline unsigned int
   Options::threads(void) const {
-    return _threads.value();
+    return _numThreads.value();
   }
 
   inline void

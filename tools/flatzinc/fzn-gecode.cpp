@@ -56,15 +56,15 @@ int main(int argc, char** argv) {
   const char* filename = argv[1];
   opt.name(filename);
 
-  FlatZinc::FlatZincSpace* fg = nullptr;
+  std::shared_ptr<FlatZinc::FlatZincSpace> fg{nullptr};
   Rnd rnd(opt.seed());
   FlatZinc::Printer p;
   try {
     if (!strcmp(filename, "-")) {
-        fg = FlatZinc::parse(cin, p, std::cerr, nullptr, rnd);
+        fg = std::shared_ptr<FlatZincSpace>(FlatZinc::parse(cin, p, std::cerr, nullptr, rnd));
       } 
       else {
-        fg = FlatZinc::parse(filename, p, std::cerr, nullptr, rnd);
+        fg = std::shared_ptr<FlatZincSpace>(FlatZinc::parse(filename, p, std::cerr, nullptr, rnd));
     }
     if (fg){
       if (opt.output()) {
@@ -76,13 +76,13 @@ int main(int argc, char** argv) {
         }
         // Force the use of regular Gecode if satisfaction problem (as the portfolio is only implemented for optimisation problems)
         if (opt.usePBS() && fg->method() != FlatZincSpace::Meth::SAT && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
-          fg->runPBS(os, p, opt, t_total);
+          fg->runAssetSearch(os, p, opt, t_total);
         } else {
           fg->run(os, p, opt, t_total);
         }
         os.close();
       } else if (opt.usePBS() && fg->method() != FlatZincSpace::Meth::SAT && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
-        fg->runPBS(std::cout, p, opt, t_total);
+        fg->runAssetSearch(std::cout, p, opt, t_total);
       } else {
         fg->run(std::cout, p, opt, t_total);
       }
@@ -91,7 +91,6 @@ int main(int argc, char** argv) {
       exit(EXIT_FAILURE);
     }
     delete fg->solveAnnotations();
-    delete fg;
   } 
   catch (FlatZinc::Error& e) {
     std::cerr << "Error: " << e.toString() << std::endl;

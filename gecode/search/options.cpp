@@ -42,21 +42,8 @@ namespace Gecode { namespace Search {
   Options
   Options::expand(void) const {
 #ifdef GECODE_HAS_THREADS
-    double t = threads;
-    if (t <= -1.0) {
-      t = Support::Thread::npu() + t;
-    } else if (t < 0.0) {
-      t = (1.0 + t) * Support::Thread::npu();
-    } else if (t == 0.0) {
-      t = Support::Thread::npu();
-    } else if (t < 1.0) {
-      t = t * Support::Thread::npu();
-    }
-    t = floor(t+0.5);
-    if (t < 1.0)
-      t = 1.0;
     Options o(*this);
-    o.threads = t;
+    o.numThreads = numThreads == 0 ? std::max<unsigned int>(Support::Thread::npu(), 1) : numThreads;
     return o;
 #else
     return *this;

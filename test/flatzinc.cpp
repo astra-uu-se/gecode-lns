@@ -67,6 +67,7 @@ namespace Test { namespace FlatZinc {
         BranchModifier bm(false, false, false);
         fg->createBranchers(p, fg->solveAnnotations(), fznopt,
                             false, bm, olog);
+        fg->populateLnsVars();
         fg->shrinkArrays(p);
         std::ostringstream os;
         fg->run(os, p, fznopt, t_total);

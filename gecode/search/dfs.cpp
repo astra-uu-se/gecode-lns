@@ -45,7 +45,7 @@ namespace Gecode { namespace Search {
   dfsengine(Space* s, const Options& o) {
     Options to = o.expand();
 #ifdef GECODE_HAS_THREADS
-    if (to.threads == 1.0) {
+    if (to.numThreads == 1.0) {
       if (to.tracer)
         return new WorkerToEngine<Seq::DFS<TraceRecorder>>(s,to);
       else

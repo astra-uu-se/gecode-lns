@@ -8,6 +8,7 @@
 // #include <gecode/flatzinc/branch.hh>
 #include <gecode/search.hh>
 
+#include <utility>
 #include <vector>
 #include <array>
 #include <string>
@@ -83,8 +84,8 @@ class RBSEngine : public BaseEngine {
 public:
     // RBSEngine(FlatZincSpace* space, const Search::Options& options, std::atomic<bool>* optimum_found)
         // : engine(space, options, optimum_found) {}
-    RBSEngine(FlatZincSpace* space, const Search::Options& options, std::atomic_bool *optimum_found, std::vector<Space*>& all_best_solutions)
-        : engine(space, options, optimum_found, &all_best_solutions) {}
+    RBSEngine(FlatZincSpace* space, const Search::Options& options, std::shared_ptr<std::atomic_bool> optimum_found, std::shared_ptr<std::vector<std::shared_ptr<Space>>> all_best_solutions)
+        : engine(space, options, std::move(optimum_found), std::move(all_best_solutions)) {}
 
     RBSEngine(FlatZincSpace* space, const Search::Options& options)
         : engine(space, options) {}

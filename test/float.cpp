@@ -489,7 +489,7 @@ do {                                                            \
     post(*search_s,search_s->x);
     branch(*search_s,search_s->x,FLOAT_VAR_NONE(),FLOAT_VAL_SPLIT_MIN());
     Search::Options search_o;
-    search_o.threads = 1;
+    search_o.numThreads = 1;
     DFS<TestSpace> * e_s = new DFS<TestSpace>(search_s,search_o);
     while (a.has_more()) {
       MaybeType sol = solution(a);

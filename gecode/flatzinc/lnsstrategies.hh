@@ -31,13 +31,13 @@ struct CIGInfo {
     double bound_diff_sum;
     double r;
 
-    CIGInfo(int num_vars) : bound_differences(num_vars), scores(num_vars), bound_diff_sum(0), r(0) {}
+    explicit CIGInfo(int num_vars) : bound_differences(num_vars), scores(num_vars), bound_diff_sum(0), r(0) {}
 };
 
 class LNSstrategies {
 public:
-    LNSstrategies(); // constructor
-    ~LNSstrategies(); // destructor
+    LNSstrategies() = default; // constructor
+    ~LNSstrategies() = default; // destructor
 
     // Standard LNS
     bool random(FlatZincSpace& fzs, const MetaInfo& mi);

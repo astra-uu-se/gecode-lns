@@ -114,18 +114,18 @@ namespace Gecode { namespace Search { namespace Par {
 
 
   forceinline
-  PortfolioStop::PortfolioStop(Stop* so0)
+  AssetSearchStop::AssetSearchStop(Stop* so0)
     : so(so0), tostop(nullptr) {}
 
   forceinline void
-  PortfolioStop::share(volatile bool* ts) {
-    tostop = ts;
+  AssetSearchStop::share(std::shared_ptr<const bool> ts) {
+    tostop = std::move(ts);
   }
 
 
   template<class Collect>
   forceinline
-  Slave<Collect>::Slave(PBS<Collect>* m, Engine* s, Stop* so)
+  Slave<Collect>::Slave(AssetSearch<Collect>* m, Engine* s, Stop* so)
     : Support::Runnable(false), master(m), slave(s), stop(so) {}
   template<class Collect>
   forceinline Statistics
@@ -152,31 +152,31 @@ namespace Gecode { namespace Search { namespace Par {
 
   template<class Collect>
   forceinline
-  PBS<Collect>::PBS(Engine** engines, Stop** stops, unsigned int n,
+  AssetSearch<Collect>::AssetSearch(Engine** engines, Stop** stops, unsigned int n,
                     const Statistics& stat0)
     : stat(stat0), slaves(heap.alloc<Slave<Collect>*>(n)),
       n_slaves(n), n_active(n),
-      slave_stop(false), tostop(false), n_busy(0) {
+      slave_stop(false), tostop(std::make_shared<bool>(false)), n_busy(0) {
     // Initialize slaves
     for (unsigned int i=0U; i<n_slaves; i++) {
       slaves[i] = new Slave<Collect>(this,engines[i],stops[i]);
-      static_cast<PortfolioStop*>(stops[i])->share(&tostop);
+      dynamic_cast<AssetSearchStop*>(stops[i])->share(tostop);
     }
   }
 
 
   template<class Collect>
   forceinline bool
-  PBS<Collect>::report(Slave<Collect>* slave, Space* s) {
+  AssetSearch<Collect>::report(Slave<Collect>* slave, Space* s) {
     // If b is false the report should be repeated (solution was worse)
     bool b = true;
     m.acquire();
     if (s != nullptr) {
       b = solutions.add(s,slave);
       if (b)
-        tostop = true;
+        (*tostop) = true;
     } else if (slave->stopped()) {
-      if (!tostop)
+      if (!(*tostop))
         slave_stop = true;
     } else {
       // Move slave to inactive, as it has exhausted its engine
@@ -186,7 +186,7 @@ namespace Gecode { namespace Search { namespace Par {
       assert(i < n_active);
       assert(n_active > 0);
       std::swap(slaves[i],slaves[--n_active]);
-      tostop = true;
+      (*tostop) = true;
     }
     if (b) {
       if (--n_busy == 0)
@@ -207,16 +207,16 @@ namespace Gecode { namespace Search { namespace Par {
 
   template<class Collect>
   Space*
-  PBS<Collect>::next(void) {
+  AssetSearch<Collect>::next(void) {
     m.acquire();
     if (solutions.empty()) {
       // Clear all
-      tostop = false;
+      (*tostop) = false;
       slave_stop = false;
 
       // Invariant: all slaves are idle!
       assert(n_busy == 0);
-      assert(!tostop);
+      assert(!(*tostop));
 
       if (n_active > 0) {
         // Run all active slaves
@@ -253,13 +253,13 @@ namespace Gecode { namespace Search { namespace Par {
 
   template<class Collect>
   bool
-  PBS<Collect>::stopped(void) const {
+  AssetSearch<Collect>::stopped(void) const {
     return slave_stop;
   }
 
   template<class Collect>
   Statistics
-  PBS<Collect>::statistics(void) const {
+  AssetSearch<Collect>::statistics(void) const {
     assert(n_busy == 0);
     Statistics s(stat);
     for (unsigned int i=0U; i<n_slaves; i++)
@@ -269,7 +269,7 @@ namespace Gecode { namespace Search { namespace Par {
 
   template<class Collect>
   void
-  PBS<Collect>::constrain(const Space& b) {
+  AssetSearch<Collect>::constrain(const Space& b) {
     assert(n_busy == 0);
     if (!Collect::best)
       throw NoBest("PBS::constrain");
@@ -281,7 +281,7 @@ namespace Gecode { namespace Search { namespace Par {
   }
 
   template<class Collect>
-  PBS<Collect>::~PBS(void) {
+  AssetSearch<Collect>::~AssetSearch(void) {
     assert(n_busy == 0);
     heap.free<Slave<Collect>*>(slaves,n_slaves);
   }

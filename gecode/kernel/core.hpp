@@ -1648,7 +1648,7 @@ namespace Gecode {
     /// Number of failures since last restart
     const unsigned long long int f;
     /// Last solution found
-    const Space* l;
+    const std::shared_ptr<Space> l;
     /// No-goods from restart
     const NoGoods& ng;
     //@}
@@ -1658,7 +1658,7 @@ namespace Gecode {
     const unsigned int a;
     //@}
     // The best solutions found so far during PBS.
-    std::vector<Space*>* all_best_solutions;
+    std::shared_ptr<std::vector<std::shared_ptr<Space>>> all_best_solutions;
   public:
     /// \name Constructors depending on type of engine
     //@{
@@ -1667,16 +1667,16 @@ namespace Gecode {
              RestartReason rr,
              unsigned long long int s,
              unsigned long long int f,
-             const Space* l,
+             const std::shared_ptr<Space> l,
              NoGoods& ng);
 
     MetaInfo(unsigned long int r,
              RestartReason rr,
              unsigned long long int s,
              unsigned long long int f,
-             const Space* l,
+             const std::shared_ptr<Space> l,
              NoGoods& ng,
-             std::vector<Space*>* all_best_solutions);
+             std::shared_ptr<std::vector<std::shared_ptr<Space>>> all_best_solutions);
     /// Constructor for portfolio-based engine
     MetaInfo(unsigned int a);
     //@}
@@ -1693,8 +1693,8 @@ namespace Gecode {
     /// Return number of failures since last restart
     unsigned long long int fail(void) const;
     /// Return last solution found (possibly nullptr)
-    const Space* last(void) const;
-    const std::vector<Space*>* best_solutions(void) const;
+    std::shared_ptr<const Space> last(void) const;
+    std::shared_ptr<const std::vector<std::shared_ptr<Space>>> best_solutions(void) const;
     /// Return no-goods recorded from restart
     const NoGoods& nogoods(void) const;
     //@}
@@ -3111,7 +3111,7 @@ namespace Gecode {
                      RestartReason rr0,
                      unsigned long long int s0,
                      unsigned long long int f0,
-                     const Space* l0,
+                     const std::shared_ptr<Space> l0,
                      NoGoods& ng0)
     : t(RESTART), r(r0), rr(rr0), s(s0), f(f0), l(l0), ng(ng0), a(0), all_best_solutions(nullptr) {}
 
@@ -3120,9 +3120,9 @@ namespace Gecode {
                      RestartReason rr0,
                      unsigned long long int s0,
                      unsigned long long int f0,
-                     const Space* l0,
+                     const std::shared_ptr<Space> l0,
                      NoGoods& ng0,
-                     std::vector<Space*>* all_best_solutions)
+                     std::shared_ptr<std::vector<std::shared_ptr<Space>>> all_best_solutions)
     : t(RESTART), r(r0), rr(rr0), s(s0), f(f0), l(l0), ng(ng0), a(0), all_best_solutions(all_best_solutions) {}
 
   forceinline
@@ -3152,12 +3152,12 @@ namespace Gecode {
     assert(type() == RESTART);
     return f;
   }
-  forceinline const Space*
+  forceinline std::shared_ptr<const Space>
   MetaInfo::last(void) const {
     assert(type() == RESTART);
     return l;
   }
-  forceinline const std::vector<Space*>*
+  forceinline std::shared_ptr<const std::vector<std::shared_ptr<Space>>>
   MetaInfo::best_solutions(void) const {
     assert(type() == RESTART);
     return all_best_solutions;

@@ -50,14 +50,13 @@ namespace Gecode { namespace Search { namespace Par {
   template<class Tracer>
   forceinline unsigned int
   Engine<Tracer>::workers(void) const {
-    return static_cast<unsigned int>(opt().threads);
+    return static_cast<unsigned int>(opt().numThreads);
   }
   template<class Tracer>
   forceinline bool
   Engine<Tracer>::stopped(void) const {
     return has_stopped;
   }
-
 
 
   /*

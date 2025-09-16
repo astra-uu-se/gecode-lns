@@ -622,8 +622,8 @@ namespace Gecode {
 
       _search("search","search engine variants"),
       _solutions("solutions","number of solutions (0 = all)",1),
-      _threads("threads","number of threads (0 = #processing units)",
-               Search::Config::threads),
+      _numThreads("threads","number of threads (0 = #processing units)",
+               Search::Config::numThreads),
       _c_d("c-d","recomputation commit distance",Search::Config::c_d),
       _a_d("a-d","recomputation adaptation distance",Search::Config::a_d),
       _d_l("d-l","discrepancy limit for LDS",Search::Config::d_l),
@@ -677,7 +677,7 @@ namespace Gecode {
 
     add(_model); add(_symmetry); add(_propagation); add(_ipl);
     add(_branching); add(_decay); add(_seed); add(_step);
-    add(_search); add(_solutions); add(_threads); add(_c_d); add(_a_d);
+    add(_search); add(_solutions); add(_numThreads); add(_c_d); add(_a_d);
     add(_d_l);
     add(_node); add(_fail); add(_time); add(_interrupt);
     add(_assets); add(_slice); add(_pbs_asset_type);

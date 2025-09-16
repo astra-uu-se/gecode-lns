@@ -53,11 +53,11 @@ namespace Gecode { namespace Driver {
       Search::FailStop* fs; ///< Used fail stop object
       Search::TimeStop* ts; ///< Used time stop object
       Search::RestartStop* rs; ///< Used restart stop object
-      std::atomic<bool>& search_finished; ///< True if solution has been found.
+      std::shared_ptr<std::atomic<bool>> search_finished; ///< True if solution has been found.
       GECODE_DRIVER_EXPORT
       static bool sigint;   ///< Whether search was interrupted using Ctrl-C
       /// Initialize stop object
-      PBSCombinedStop(unsigned long long int node, unsigned long long int fail, double time, unsigned long long int restart, std::atomic<bool>& search_finished)
+      PBSCombinedStop(unsigned long long int node, unsigned long long int fail, double time, unsigned long long int restart, std::shared_ptr<std::atomic<bool>> search_finished)
         : ns((node > 0ULL) ? new Search::NodeStop(node) : nullptr),
           fs((fail > 0ULL) ? new Search::FailStop(fail) : nullptr),
           ts((time > 0.0)  ? new Search::TimeStop(time) : nullptr),
@@ -79,7 +79,7 @@ namespace Gecode { namespace Driver {
       virtual bool stop(const Search::Statistics& s, const Search::Options& o) {
         return
           sigint ||
-          (search_finished.load()) ||
+          (search_finished->load()) ||
           ((ns != nullptr) && ns->stop(s,o)) ||
           ((fs != nullptr) && fs->stop(s,o)) ||
           ((ts != nullptr) && ts->stop(s,o)) ||
@@ -97,7 +97,7 @@ namespace Gecode { namespace Driver {
       }
       /// Create appropriate stop-object
       static Search::Stop*
-      create(unsigned long long int node, unsigned long long int fail, double time, unsigned long long int restart, bool intr, std::atomic<bool>& search_finished) {
+      create(unsigned long long int node, unsigned long long int fail, double time, unsigned long long int restart, bool intr, std::shared_ptr<std::atomic<bool>> search_finished) {
         if (!intr && (node == 0ULL) && (fail == 0ULL) && (time == 0.0) && (restart == 0ULL))
           return nullptr;
         else
@@ -396,7 +396,7 @@ namespace Gecode { namespace Driver {
     if (o.restart() != RM_NONE) {
       runMeta<Script,Engine,Options,RBS>(o,s);
     } else if (o.assets() > 0) {
-      runMeta<Script,Engine,Options,PBS>(o,s);
+      runMeta<Script,Engine,Options,AssetSearch>(o,s);
     } else {
       runMeta<Script,Engine,Options,EngineToMeta>(o,s);
     }
@@ -469,12 +469,12 @@ namespace Gecode { namespace Driver {
             s = new Script(o);
           unsigned int n_p = PropagatorGroup::all.size(*s);
           unsigned int n_b = BrancherGroup::all.size(*s);
-          so.threads = o.threads();
+          so.numThreads = o.threads();
           so.c_d     = o.c_d();
           so.a_d     = o.a_d();
           so.d_l     = o.d_l();
-          so.assets  = o.assets();
-          so.slice   = o.slice();
+          so.numAssets  = o.assets();
+          so.sliceSize   = o.slice();
           so.stop    = CombinedStop::create(o.node(),o.fail(), o.time(), o.restart_limit(),
                                             o.interrupt());
           so.cutoff  = createCutoff(o);
@@ -572,9 +572,9 @@ namespace Gecode { namespace Driver {
           unsigned int n_b = BrancherGroup::all.size(*s);
 
           so.clone   = false;
-          so.threads = o.threads();
-          so.assets  = o.assets();
-          so.slice   = o.slice();
+          so.numThreads = o.threads();
+          so.numAssets  = o.assets();
+          so.sliceSize   = o.slice();
           so.c_d     = o.c_d();
           so.a_d     = o.a_d();
           so.d_l     = o.d_l();
@@ -634,9 +634,9 @@ namespace Gecode { namespace Driver {
               Script* s1 = new Script(o);
               Search::Options sok;
               sok.clone   = false;
-              sok.threads = o.threads();
-              sok.assets  = o.assets();
-              sok.slice   = o.slice();
+              sok.numThreads = o.threads();
+              sok.numAssets  = o.assets();
+              sok.sliceSize   = o.slice();
               sok.c_d     = o.c_d();
               sok.a_d     = o.a_d();
               sok.d_l     = o.d_l();

@@ -479,7 +479,7 @@ do {                                                            \
     post(*search_s,search_s->x);
     branch(*search_s,search_s->x,INT_VAR_NONE(),INT_VAL_MIN());
     Search::Options search_o;
-    search_o.threads = 1;
+    search_o.numThreads = 1;
     DFS<TestSpace> e_s(search_s,search_o);
     delete search_s;
 

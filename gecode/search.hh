@@ -107,7 +107,7 @@ namespace Gecode { namespace Search {
     /// Whether engines create a clone when being initialized
     const bool clone = true;
     /// Number of threads to use
-    const double threads = 1.0;
+    const unsigned int numThreads = 1;
 
     /// Create a clone after every \a c_d commits (commit distance)
     const unsigned int c_d = 8;
@@ -749,7 +749,7 @@ namespace Gecode { namespace Search {
       /// Whether engines create a clone when being initialized
       bool clone;
       /// Number of threads to use
-      double threads;
+      unsigned int numThreads;
       /// Create a clone after every \a c_d commits (commit distance)
       unsigned int c_d;
       /// Create a clone during recomputation if distance is greater than \a a_d (adaptive distance)
@@ -757,9 +757,9 @@ namespace Gecode { namespace Search {
       /// Discrepancy limit (for LDS)
       unsigned int d_l;
       /// Number of assets (engines) in a portfolio
-      unsigned int assets;
+      unsigned int numAssets;
       /// Size of a slice in a portfolio (in number of failures)
-      unsigned int slice;
+      unsigned int sliceSize;
       /// Depth limit for extraction of no-goods
       unsigned int nogoods_limit;
       /// Stop object for stopping search
@@ -929,7 +929,7 @@ namespace Gecode { namespace Search {
     /// Constrain future solutions to be better than \a b (raises exception)
     virtual void constrain(const Space& b);
     /// Reset engine to restart at space \a s (does nothing)
-    virtual void reset(Space* s);
+    virtual void reset(std::shared_ptr<Space> s);
     /// Return no-goods (the no-goods are empty)
     virtual NoGoods& nogoods(void);
     /// Destructor
@@ -1176,7 +1176,7 @@ namespace Gecode {
   public:
     /// Initialize engine for space \a s and options \a o
     RBS(T* s, const Search::Options& o);
-    RBS(T* s, const Search::Options& o, std::atomic<bool>* optimum_found, std::vector<Space*>* all_best_solutions);
+    RBS(T* s, const Search::Options& o, std::shared_ptr<std::atomic<bool>> optimum_found, std::shared_ptr<std::vector<std::shared_ptr<Space>>> all_best_solutions);
     
     /// Whether engine does best solution search
     static const bool best = E<T>::best;
@@ -1257,16 +1257,16 @@ namespace Gecode {
    * \ingroup TaskModelSearch
    */
   template<class T, template<class> class E = DFS>
-  class PBS : public Search::Base<T> {
+  class AssetSearch : public Search::Base<T> {
     using Search::Base<T>::e;
   protected:
     /// The actual build function
-    void build(T* s, SEBs& sebs, const Search::Options& o);
+    void build(T* s, SEBs& searchEngineBuilders, const Search::Options& o);
   public:
     /// Initialize with engines running copies of \a s with options \a o
-    PBS(T* s, const Search::Options& o=Search::Options::def);
+    AssetSearch(T* s, const Search::Options& o=Search::Options::def);
     /// Initialize with engine builders \a sebs
-    PBS(T* s, SEBs& sebs, const Search::Options& o=Search::Options::def);
+    AssetSearch(T* s, SEBs& searchEngineBuilders, const Search::Options& o=Search::Options::def);
     /// Whether engine does best solution search
     static const bool best = E<T>::best;
   };
@@ -1289,11 +1289,11 @@ namespace Gecode {
    * \ingroup TaskModelSearch
    */
   template<class T, template<class> class E>
-  T* pbs(T* s, const Search::Options& o=Search::Options::def);
+  T* assetSearch(T* s, const Search::Options& o=Search::Options::def);
 
   /// Return a portfolio search engine builder
   template<class T>
-  SEB pbs(const Search::Options& o=Search::Options::def);
+  SEB assetSearch(const Search::Options& o=Search::Options::def);
 
 }
 

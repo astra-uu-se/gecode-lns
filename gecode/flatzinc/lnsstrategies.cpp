@@ -24,55 +24,37 @@ using namespace std;
 using namespace Gecode;
 using namespace Gecode::FlatZinc;
 
-LNSstrategies::LNSstrategies() {
-    // constructor implementation
-}
-
-LNSstrategies::~LNSstrategies() {
-    // destructor implementation
-}
-
 bool hasLast(const FlatZincSpace& fzs, const MetaInfo& mi) {
-  return ((fzs.pbs_current_best_sol != nullptr && fzs.pbs_current_best_sol->load() != nullptr) 
-       || mi.last() != nullptr);
+  return fzs._incumbentSolution->hasValue() || mi.last() != nullptr;
 }
 
-const FlatZincSpace* getLast(FlatZincSpace& fzs, const MetaInfo& mi) {
-  if (fzs.pbs_current_best_sol != nullptr && fzs.pbs_current_best_sol->load() != nullptr) {
-    return fzs.pbs_current_best_sol->load();
-  } else if (mi.last() != nullptr) {
-    return static_cast<const FlatZincSpace*>(mi.last());
+std::shared_ptr<const FlatZincSpace> getLast(FlatZincSpace& fzs, const MetaInfo& mi) {
+  if (fzs._incumbentSolution != nullptr) {
+    auto last = fzs._incumbentSolution->load();
+    if (last != nullptr) {
+      return last;
+    }
+  }
+  if (mi.last() != nullptr) {
+    return std::dynamic_pointer_cast<const FlatZincSpace>(mi.last());
   }
   return nullptr;
 }
 
-bool applyInitialSolution(FlatZincSpace& fzs, const MetaInfo& mi) {
-  if (fzs.lnsInitialSolution().empty() || hasLast(fzs, mi)) {
-    return true;
-  }
-  for (int i = 0; i < fzs.lnsInitialSolution().size(); i++) {
-    const int index = fzs.lnsInitialSolution()[i].first;
-    const int val = fzs.lnsInitialSolution()[i].second;
-    rel(fzs, fzs.iv[index], IRT_EQ, val);
-  }
-  fzs.status();
-  return false;
-}
-
 const Gecode::IntVar& lnsVarConst(const FlatZincSpace& fzs, size_t index) {
-  return fzs.hasLnsVarAnn() ? fzs.iv_lns[index] : fzs.iv[index];
+  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[index];
 }
 
 const Gecode::IntVar& lnsVarConst(const FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  return fzs.hasLnsVarAnn() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
+  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
 }
 
 Gecode::IntVar& lnsVar(FlatZincSpace& fzs, size_t index) {
-  return fzs.hasLnsVarAnn() ? fzs.iv_lns[index] : fzs.iv[index];
+  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[index];
 }
 
 Gecode::IntVar& lnsVar(FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  return fzs.hasLnsVarAnn() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
+  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
 }
 
 void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index) {
@@ -86,7 +68,7 @@ void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index, const s
 bool shouldPerformLns(const FlatZincSpace& fzs, const MetaInfo& mi) {
   return (mi.type() == MetaInfo::RESTART &&
          (fzs.freezePercent() > 0 && fzs.freezePercent() < 100) &&
-         (mi.restart() > 0 || hasLast(fzs, mi)));
+         hasLast(fzs, mi));
 }
 
 bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace& last) {
@@ -106,19 +88,16 @@ bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace&
 }
 
 bool LNSstrategies::random(FlatZincSpace& fzs, const MetaInfo& mi) {
-    if (!applyInitialSolution(fzs, mi)) {
-      return false;
-    }
     if (!shouldPerformLns(fzs, mi)) {
       return true;
     }
-    const FlatZincSpace* last = getLast(fzs, mi);
+    const auto last = getLast(fzs, mi);
     if (last == nullptr) {
       return true;
     }
     updateLastBest(fzs, mi, *last);
     
-    size_t idx_size = fzs.hasLnsVarAnn() ? fzs.iv_lns.size() : fzs.iv.size();
+    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
 
     for (size_t var_index = 0; var_index < idx_size; ++var_index) {
       if (fzs.random()(99U) <= fzs.freezePercent()) {
@@ -129,13 +108,10 @@ bool LNSstrategies::random(FlatZincSpace& fzs, const MetaInfo& mi) {
 }
 
 bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size) {
-    if (!applyInitialSolution(fzs, mi)) {
-      return false;
-    }
     if (!shouldPerformLns(fzs, mi)) {
       return true;
     }
-    const FlatZincSpace* last = getLast(fzs, mi);
+    const auto last = getLast(fzs, mi);
     if (last == nullptr) {
       return true;
     }
@@ -144,7 +120,7 @@ bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, un
     // Set up the variables to make sure that pglns stops.
     // double test = 0;
     // double stop = test * 0.80;
-    size_t idx_size = fzs.hasLnsVarAnn() ? fzs.iv_lns.size() : fzs.iv.size();
+    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
     size_t limit = floor(double(idx_size) * (double(fzs.freezePercent()) / 100.0));
     size_t vars_frozen = 0;
     // Set up the variables for the propagation guided LNS.
@@ -201,13 +177,10 @@ bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, un
 }
 
 bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size) {
-    if (!applyInitialSolution(fzs, mi)) {
-      return false;
-    }
     if (!shouldPerformLns(fzs, mi)) {
       return true;
     }
-    const FlatZincSpace* last = getLast(fzs, mi);
+    const auto last = getLast(fzs, mi);
     if (last == nullptr) {
       return true;
     }
@@ -216,7 +189,7 @@ bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo
     // Set up the variables to make sure that pglns stops.
     // double test = 0;
     // double stop = test * 0.80;
-    size_t idx_size = fzs.hasLnsVarAnn() ? fzs.iv_lns.size() : fzs.iv.size();
+    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
     int limit = floor(static_cast<double>(idx_size) * (static_cast<double>(fzs.freezePercent()) / 100.0));
     size_t vars_frozen = 0;
     // Set up the variables for the propagation guided LNS.
@@ -286,19 +259,16 @@ bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo
 }
 
 bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
-    if (!applyInitialSolution(fzs, mi)) {
-      return false;
-    }
     if (!shouldPerformLns(fzs, mi)) {
       return true;
     }
-    const FlatZincSpace* last = getLast(fzs, mi);
+    const auto last = getLast(fzs, mi);
     if (last == nullptr) {
       return true;
     }
     updateLastBest(fzs, mi, *last);
 
-    size_t idx_size = fzs.hasLnsVarAnn() ? fzs.iv_lns.size() : fzs.default_iv_obj_relax_indices->size();
+    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.default_iv_obj_relax_indices->size();
     for (size_t i = 0; i < idx_size; i++) {
       if (fzs.random()(99U) <= fzs.freezePercent()) {
         if (!lnsVar(fzs, i, fzs.default_iv_obj_relax_indices).assigned()){
@@ -318,20 +288,17 @@ int randInInterval(int lowInc, int upExc, Rnd& random) {
 }
 
 bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int dives, double alpha){
-  if (!applyInitialSolution(fzs, mi)) {
-    return false;
-  }
   if (!shouldPerformLns(fzs, mi)) {
     return true;
   }
-  const FlatZincSpace* last = getLast(fzs, mi);
+  const auto last = getLast(fzs, mi);
   if (last == nullptr) {
     return true;
   }
   const bool foundBetter = updateLastBest(fzs, mi, *last);
 
   // Use a vector of indices, select variables from it.
-  const size_t size = fzs.hasLnsVarAnn() ? fzs.iv_lns.size() : fzs.iv.size();
+  const size_t size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
   std::vector<int> indices(size);
   std::iota(indices.begin(), indices.end(), 0);
 
@@ -470,19 +437,16 @@ int selectRandomRelatedIndex(FlatZincSpace& fzs, int lns_index, std::vector<int>
 }
 
 bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& mi) {
-  if (!applyInitialSolution(fzs, mi)) {
-    return false;
-  }
   if (!shouldPerformLns(fzs, mi)) {
     return true;
   }
-  const FlatZincSpace* last = getLast(fzs, mi);
+  const auto last = getLast(fzs, mi);
   if (last == nullptr) {
     return true;
   }
   const bool foundBetter = updateLastBest(fzs, mi, *last);
 
-  const size_t idx_size = fzs.hasLnsVarAnn() ? fzs.iv_lns.size() : fzs.iv.size();
+  const size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
 
   if (fzs.variable_impacts == nullptr || fzs.variable_impacts->empty() || foundBetter) {
     

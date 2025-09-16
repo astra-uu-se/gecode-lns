@@ -111,8 +111,10 @@ namespace Gecode { namespace Search {
     if (n > 0) {
       n--;
       return ++(*c1);
-    } else {
+    } else if (c2 != nullptr) {
       return ++(*c2);
+    } else {
+      return 0;
     }
   }
 
