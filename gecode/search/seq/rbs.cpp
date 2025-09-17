@@ -43,20 +43,23 @@ namespace Gecode { namespace Search { namespace Seq {
     if (optimum_found != nullptr && optimum_found->load()) {
       return true;
     }
+    // Stop if the stop object for the meta engine says so
+    if (m_stop.stop(m_stat+s,o)) {
+      e_stopped = true;
+      if (s.fail > l) {
+        m_stat.restart++;
+      }
+      return true;
+    }
     // Stop if the fail limit for the engine says so
     if (s.fail > l) {
       m_stat.restart++;
       return true;
     }
-    // Stop if the stop object for the meta engine says so
-    if (m_stop.stop(m_stat+s,o)) {
-      e_stopped = true;
-      return true;
-    }
     return false;
   }
 
-  bool RBS::initNext(const MetaInfo& mi) {
+  bool RBS::initNext(const MetaInfo& mi) const {
     // Reset number of no-goods found
     e->nogoods().ng(0);
     const bool requiresRestart = master->master(mi);
@@ -64,7 +67,7 @@ namespace Gecode { namespace Search { namespace Seq {
     return requiresRestart;
   }
 
-  bool RBS::slave(MetaInfo& mi) {
+  bool RBS::slave(const MetaInfo& mi) {
     const auto slave = master;
     master = std::shared_ptr<Space>(master->clone());
     const bool c = slave->slave(mi);
@@ -77,7 +80,7 @@ namespace Gecode { namespace Search { namespace Seq {
       return true;
     }
     restart = false;
-    MetaInfo mi(stop->m_stat.restart, MetaInfo::RR_SOL, ++solutionsSinceLastRestart, e->statistics().fail, last, e->nogoods());
+    const MetaInfo mi(stop->m_stat.restart, MetaInfo::RR_SOL, ++solutionsSinceLastRestart, e->statistics().fail, last, e->nogoods());
     const bool r = initNext(mi);
     const auto stat = master->status(stop->m_stat);
     if (stat == SS_FAILED) {

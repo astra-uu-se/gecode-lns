@@ -1289,7 +1289,7 @@ namespace Gecode { namespace FlatZinc {
   }
 
   void
-  FlatZincSpace::createBranchers(Printer&p, AST::Node* ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err) {
+  FlatZincSpace::createBranchers(Printer&p, const std::shared_ptr<AST::Node>& ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err) {
     int seed = opt.seed();
     double decay = opt.decay();
     Rnd rnd(static_cast<unsigned int>(seed));
@@ -1349,7 +1349,7 @@ namespace Gecode { namespace FlatZinc {
         if (ann->isArray()) {
           flattenAnnotations(ann->getArray(), flatAnn);
         } else {
-          flatAnn.push_back(ann);
+          flatAnn.push_back(ann.get());
         }
       }
 
@@ -1414,6 +1414,8 @@ namespace Gecode { namespace FlatZinc {
             (*_lns) = freezePercentage;
             _lnsAnnType = LNSAnnType::FULL_LNS_ANN;
           }
+        } else if (flatAnn[i]->isCall("warm_start") || flatAnn[i]->isCall("warm_start_array")) {
+          continue; // We take care of these annotations elsewhere
         } else if (flatAnn[i]->isCall("gecode_search")) {
           AST::Call* c = flatAnn[i]->getCall();
           branchWithPlugin(c->args);
@@ -2011,7 +2013,7 @@ namespace Gecode { namespace FlatZinc {
     if (_solveAnnotations->isArray()) {
       flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
     } else {
-      flatAnn.push_back(_solveAnnotations);
+      flatAnn.emplace_back(_solveAnnotations.get());
     }
 
     for (unsigned int i = 0; i < flatAnn.size(); ++i) {
@@ -2019,7 +2021,7 @@ namespace Gecode { namespace FlatZinc {
         const AST::Call *call = flatAnn[i]->getCall("relax_and_reconstruct");
         return call->args->getArray()->a.size() == 3;
       }
-      if (flatAnn[i]->isCall("lns_warm_start")) {
+      if (flatAnn[i]->isCall("warm_start") || flatAnn[i]->isCall("warm_start_array")) {
         return true;
       }
     }
@@ -2033,79 +2035,141 @@ namespace Gecode { namespace FlatZinc {
     if (_incumbentSolution->hasValue()) {
       throw std::runtime_error("FlatZincSpace::populateInitialIncumbentSolution: _incumbentSolution already a solution");
     }
-    std::vector<std::pair<int,int>> initialIncumbentSolution;
+
 
     std::vector<AST::Node*> flatAnn;
     if (_solveAnnotations->isArray()) {
       flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
     } else {
-      flatAnn.emplace_back(_solveAnnotations);
+      flatAnn.emplace_back(_solveAnnotations.get());
     }
+
+    std::vector<std::optional<int>> iv_init(iv.size(), std::optional<int>{});
+    std::vector<std::optional<bool>> bv_init(bv.size(), std::optional<bool>{});
+#ifdef GECODE_HAS_FLOAT_VARS
+    std::vector<std::optional<FloatVal>> fv_init(fv.size(), std::optional<FloatVal>{});
+#endif
+
+    auto addWarmStart = [&](const AST::Array* varArr, const AST::Array* valArr) -> void {
+      for (unsigned int i = 0; i < varArr->a.size(); ++i) {
+        auto* varNode = varArr->a[i];
+        auto* valNode = valArr->a[i];
+        if (varNode->isIntVar()) {
+          const int index = varNode->getIntVar();
+          if (valNode->isInt() || valNode->isBool()) {
+            const int v = valNode->isInt() ? valNode->getInt() : (valNode->isBool() ? 1 : 0);
+            if (iv_init[index].has_value()) {
+              if (v == iv_init[index].value()) {
+                continue;
+              }
+              throw FlatZinc::Error("FlatZinc", "The same variable is initialized multiple times");
+            }
+            iv_init[index] = v;
+          }
+        } else if (varNode->isBoolVar()) {
+          const int index = varNode->getBoolVar();
+          if (valNode->isBool() || (valNode->isInt() && 0 <= valNode->getInt() && valNode->getInt() <= 1)) {
+            const bool v = valNode->isBool() ? valNode->getBool() : valNode->getInt() == 1;
+            if (bv_init[index].has_value()) {
+              if (v == bv_init[index].value()) {
+                continue;
+              }
+              throw FlatZinc::Error("FlatZinc", "The same variable is initialized multiple times");
+            }
+            bv_init[index] = v;
+          }
+        }
+#ifdef GECODE_HAS_FLOAT_VARS
+        else if (varNode->isFloatVar() && valNode->isFloat()) {
+            const int index = varNode->getBoolVar();
+            const FloatVal v = valNode->getFloat();
+            if (fv_init[index].has_value()) {
+              if (v == fv_init[index].value()) {
+                continue;
+              }
+              throw FlatZinc::Error("FlatZinc", "The same variable is initialized multiple times");
+            }
+            fv_init[index] = v;
+          }
+#endif
+        }
+    };
+
+    auto addAnnotation = [&](AST::Call* call) -> void {
+      const auto* args = call->getArgs(2);
+      const AST::Array *vars = args->a[0]->getArray();
+      const AST::Array* vals = args->a[1]->getArray();
+      if (vars->a.size() != vals->a.size()) {
+        throw std::runtime_error("warm_start: initial solution size mismatch");
+      }
+      addWarmStart(vars, vals);
+    };
 
     for (unsigned int i = 0; i < flatAnn.size(); ++i) {
       if (flatAnn[i]->isCall("relax_and_reconstruct")) {
-        if (!initialIncumbentSolution.empty()) {
-          throw std::runtime_error("relax_and_reconstruct: already an initial solution");
-        }
         AST::Call *call = flatAnn[i]->getCall("relax_and_reconstruct");
         if (call->args->getArray()->a.size() != 3) {
           continue;
         }
         const auto* args = call->getArgs(3);
         const AST::Array *vars = args->a[0]->getArray();
-        const AST::Array* vals = args->a[1]->getArray();
+        const AST::Array* vals = args->a[2]->getArray();
         if (vars->a.size() != vals->a.size()) {
-          throw std::runtime_error("relax_and_reconstruct: initial solution size mismatch");
+          throw FlatZinc::Error("FlatZinc", "relax_and_reconstruct arguments 1 and 3 should have same size");
         }
-        for (unsigned int j = 0; j < vars->a.size(); ++j) {
-          if (!vars->a[j]->isInt()) {
-            initialIncumbentSolution.emplace_back(vars->a[j]->getIntVar(), vals->a[j]->getInt());
-          }
-        }
+        addWarmStart(vars, vals);
       }
-      if (flatAnn[i]->isCall("lns_warm_start")) {
-        if (!initialIncumbentSolution.empty()) {
-          throw std::runtime_error("lns_warm_start: already an initial solution");
-        }
-        AST::Call *call = flatAnn[i]->getCall("lns_warm_start");
-        const auto* args = call->getArgs(2);
-        const AST::Array *vars = args->a[0]->getArray();
-        const AST::Array* vals = args->a[1]->getArray();
-        if (vars->a.size() != vals->a.size()) {
-          throw std::runtime_error("lns_warm_start: initial solution size mismatch");
-        }
-        for (unsigned int j = 0; j < vars->a.size(); ++j) {
-          if (!vars->a[j]->isInt()) {
-            initialIncumbentSolution.emplace_back(vars->a[j]->getIntVar(), vals->a[j]->getInt());
+      if (flatAnn[i]->isCall("warm_start")) {
+        addAnnotation(flatAnn[i]->getCall("warm_start"));
+      }
+      if (flatAnn[i]->isCall("warm_start_array")) {
+        AST::Call *call = flatAnn[i]->getCall("warm_start_array");
+        const auto* args = call->getArgs(1);
+        const AST::Array *wsAnnotations = args->a[0]->getArray();
+        for (unsigned int j = 0; j < wsAnnotations->a.size(); ++j) {
+          if (!wsAnnotations->a[j]->isCall("warm_start")) {
+            throw FlatZinc::Error("FlatZinc", "warm_start_array should only contain warm_start annotations");
           }
+          addAnnotation(wsAnnotations->a[i]->getCall("warm_start"));
         }
       }
     }
-    for (unsigned int i = 0; i < initialIncumbentSolution.size(); ++i) {
-      const int index = initialIncumbentSolution[i].first;
-      const int value = initialIncumbentSolution[i].second;
-      rel(*this, iv[index], IRT_EQ, value);
+    for (unsigned int i = 0; i < iv_init.size(); ++i) {
+      if (iv_init[i].has_value()) {
+        rel(*this, iv[i], IRT_EQ, iv_init[i].value());
+      }
     }
+    for (unsigned int i = 0; i < bv_init.size(); ++i) {
+      if (bv_init[i].has_value()) {
+        rel(*this, bv[i], IRT_EQ, bv_init[i].value() == true ? 1 : 0);
+      }
+    }
+#ifdef GECODE_HAS_FLOAT_VARS
+    for (unsigned int i = 0; i < fv_init.size(); ++i) {
+      if (fv_init[i].has_value()) {
+        rel(*this, fv[i], FRT_EQ, fv_init[i].value());
+      }
+    }
+#endif
     const auto stat = status();
     if (stat != SS_SOLVED) {
       throw std::runtime_error("supplied initial solution is a non-solution");
     }
   }
 
-
-  AST::Array*
+  std::shared_ptr<AST::Array>
   FlatZincSpace::solveAnnotations(void) const {
     return _solveAnnotations;
   }
 
-  void FlatZincSpace::setSolveAnnotations(AST::Array* solveAnnotations){
+  void FlatZincSpace::setSolveAnnotations(std::shared_ptr<AST::Array>& solveAnnotations){
     _solveAnnotations = solveAnnotations;
   }
 
   void
   FlatZincSpace::solve(AST::Array* ann) {
     _method = SAT;
-    _solveAnnotations = ann;
+    _solveAnnotations = std::shared_ptr<AST::Array>(ann);
     last_best_objective = std::make_shared<int>(0);
   }
 
@@ -2114,7 +2178,7 @@ namespace Gecode { namespace FlatZinc {
     _method = MIN;
     _optVar = var;
     _optVarIsInt = isInt;
-    _solveAnnotations = ann;
+    _solveAnnotations = std::shared_ptr<AST::Array>(ann);
     last_best_objective = std::make_shared<int>(std::numeric_limits<int>::max());
   }
 
@@ -2123,7 +2187,7 @@ namespace Gecode { namespace FlatZinc {
     _method = MAX;
     _optVar = var;
     _optVarIsInt = isInt;
-    _solveAnnotations = ann;
+    _solveAnnotations = std::shared_ptr<AST::Array>(ann);
     last_best_objective = std::make_shared<int>(std::numeric_limits<int>::min());
   }
 

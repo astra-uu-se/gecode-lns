@@ -245,8 +245,6 @@ class AssetExecutor : public Gecode::Support::Runnable {
     SearchController& control;
     /// The running asset.
     BaseAsset* asset;
-    // The output stream.
-    std::ostream& out;
     // The options for the FlatZinc space and search.
     FlatZincOptions& fopt;
     // Printer (Stores the output variables)
@@ -261,8 +259,8 @@ class AssetExecutor : public Gecode::Support::Runnable {
 
 public:
     // Constructor
-    AssetExecutor(SearchController& control, BaseAsset* asset, std::ostream& out, FlatZincOptions& fopt, FlatZinc::Printer& p, unsigned int asset_id, bool do_search)
-    : control(control), asset(asset), out(out), fopt(fopt), p(p), asset_id(asset_id), do_search(do_search) {}
+    AssetExecutor(SearchController& control, BaseAsset* asset, FlatZincOptions& fopt, unsigned int asset_id, bool do_search)
+    : control(control), asset(asset), fopt(fopt), p(p), asset_id(asset_id), do_search(do_search) {}
     // Run the search.
     void run() override {do_search ? runSearch() : runShaving();};
 };
@@ -356,8 +354,8 @@ class BaseAsset {
 
 class DFSAsset : public BaseAsset {
     public:
-        DFSAsset(SearchController& searchController, FlatZincSpace* fg, FlatZincOptions& fopt, FlatZinc::Printer& p,
-            std::ostream &out, unsigned int assetId, AssetType assetType, bool oppositeBranching, bool pbsBranching,
+        DFSAsset(SearchController& searchController, FlatZincSpace* fg, FlatZincOptions& fopt,
+            unsigned int assetId, AssetType assetType, bool oppositeBranching, bool pbsBranching,
             bool sortFlatAnn, unsigned int copyRecomputationDistance, unsigned int adaptiveRecomputationDistance,
             unsigned int threads);
 
@@ -386,7 +384,6 @@ class DFSAsset : public BaseAsset {
         SearchController& _searchController;
 
     private:
-        FlatZinc::Printer& _printer;
         BranchModifier _branchModifier;
         AssetExecutor* executor;
 
@@ -398,8 +395,8 @@ class DFSAsset : public BaseAsset {
 
 class LNSAsset : public BaseAsset {
     public:
-        LNSAsset(SearchController& searchController, FlatZincSpace* fg, FlatZincOptions& fopt, FlatZinc::Printer& printer,
-            std::ostream &out, unsigned int assetId, AssetType assetType, bool oppositeBranching,
+        LNSAsset(SearchController& searchController, FlatZincSpace* fg, FlatZincOptions& fopt,
+            unsigned int assetId, AssetType assetType, bool oppositeBranching,
             bool pbsBranching, bool sortFlatAnnotations, FlatZinc::FlatZincSpace::LNSType lnsType, unsigned int copyRecompuatationDistance,
             unsigned int adaptiveRecomputationDistance, unsigned int threads, RestartMode restartMode, double restartBase, unsigned int restartScale);
 
@@ -433,7 +430,6 @@ class LNSAsset : public BaseAsset {
         SearchController& _searchController;
 
     private:
-        FlatZinc::Printer& _printer;
         BranchModifier _branchModifier;
         RestartMode _restartMode;
         double _restartBase;
@@ -448,8 +444,8 @@ class LNSAsset : public BaseAsset {
 
 class RoundRobinLNSAsset : public BaseAsset {
     public:
-        RoundRobinLNSAsset(SearchController& control, FlatZincSpace* fg, FlatZincOptions& fopt, FlatZinc::Printer& printer,
-            std::ostream &outStream, unsigned int asset_id, unsigned int copyRecomputationDistance, unsigned int adaptiveRecompuatationDistance, unsigned int numThreads);
+        RoundRobinLNSAsset(SearchController& control, FlatZincSpace* fg, FlatZincOptions& fopt,
+            unsigned int asset_id, unsigned int copyRecomputationDistance, unsigned int adaptiveRecompuatationDistance, unsigned int numThreads);
         ;
         void run() override;
 
@@ -474,14 +470,12 @@ class RoundRobinLNSAsset : public BaseAsset {
 
     private:
         SearchController& control;
-        FlatZinc::Printer& _printer;
-        std::ostream& _outStream;
         std::vector<std::unique_ptr<BaseAsset>> _roundRobinAssets;
 };
 
 class ShavingAsset : public BaseAsset {
     public:
-        ShavingAsset(SearchController& control, FlatZincSpace* fg, FlatZincOptions& fopt, FlatZinc::Printer &printer, std::ostream &out, unsigned int assetId, AssetType assetType, int maxDomShavingSize, bool do_bounds_shaving, VariableSorter* sorter);
+        ShavingAsset(SearchController& control, FlatZincSpace* fg, FlatZincOptions& fopt, unsigned int assetId, AssetType assetType, int maxDomShavingSize, bool do_bounds_shaving, VariableSorter* sorter);
 
     ~ShavingAsset() override {
             delete _sorter;
@@ -552,17 +546,17 @@ public:
     // The asset that finished the search and found the solution.
     unsigned int _finishedAsset{std::numeric_limits<unsigned int>::max()};
 
-    bool updateBestSolution(std::shared_ptr<FlatZincSpace> sol, std::ostream& out, Printer& p, bool printAll, unsigned int asset_id);
+    bool updateBestSolution(const std::shared_ptr<FlatZincSpace> &sol, unsigned int asset_id);
 
 private:
     // Waits for all threads to be done.
     void awaitRunnersCompleted();
     // Creates the asset used by the portfolio.
-    void createAsset(AssetType asset, unsigned int assetId, std::ostream &out, unsigned int threads = 1);
+    void createAsset(AssetType asset, unsigned int assetId, unsigned int threads = 1);
     // Sets up the asset used by the portfolio.
-    void createAssets(std::ostream &out, double initTime);
+    void createAssets(double initTime);
     // Gives the statistics of the solution. (TODO: Make it possible to output from all engines and/or spaces)
-    void solutionStatistics(BaseAsset* asset, std::ostream& out, Support::Timer& t_total, unsigned int finished_asset, bool allAssetStat);
+    void solutionStatistics(BaseAsset* asset, Support::Timer& t_total, unsigned int finished_asset);
 
     // Variables
     /// Event for signaling that execution is done.

@@ -32,9 +32,9 @@
 
 predicate gecode_global_cardinality_closed(array[int] of var int: x,
                                            array[int] of int: cover,
-                                           array[int] of var int: counts) ::defines_var(counts);
+                                           array[int] of var int: counts);
 
 predicate fzn_global_cardinality_closed(array[int] of var int: x,
                                         array[int] of int: cover,
                                         array[int] of var int: counts) =
-    gecode_global_cardinality_closed(x,cover,counts);
+    gecode_global_cardinality_closed(x,cover,counts)::defines_var(counts);

@@ -246,16 +246,6 @@ namespace Gecode { namespace FlatZinc {
       return space;
     }
 
-    std::shared_ptr<FlatZincSpace> save(std::shared_ptr<FlatZincSpace> space) {
-      if (space == nullptr) {
-        throw std::runtime_error("IncumbentSolution::save: cannot save nullptr");
-      }
-      _mutex.lock();
-      _space = space;
-      _mutex.unlock();
-      return space;
-    }
-
     bool compare_exchange_strong(const std::shared_ptr<const FlatZincSpace>& expected, std::shared_ptr<FlatZincSpace> desired) {
       _mutex.lock();
       const bool ret = _space == expected;
@@ -550,7 +540,7 @@ namespace Gecode { namespace FlatZinc {
     Rnd _random;
 
     /// Annotations on the solve item
-    AST::Array* _solveAnnotations;
+    std::shared_ptr<AST::Array> _solveAnnotations;
 
     LNSType _lnsType;
     LNSAnnType _lnsAnnType;
@@ -794,7 +784,7 @@ namespace Gecode { namespace FlatZinc {
      * The seed for random branchers is given by the \a seed parameter.
      *
      */
-    void createBranchers(Printer& p, AST::Node* ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err = std::cerr);
+    void createBranchers(Printer& p, const std::shared_ptr<AST::Node>& ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err = std::cerr);
 
     void deletePBSArrays();
     void initIncumbentSolution(std::shared_ptr<IncumbentSolution>& solution);
@@ -805,10 +795,10 @@ namespace Gecode { namespace FlatZinc {
     void storeConstraintInformation();
 
     /// Return the solve item annotations
-    AST::Array* solveAnnotations(void) const;
+    std::shared_ptr<AST::Array> solveAnnotations(void) const;
 
     // Set the solve item annotations for a space.
-    void setSolveAnnotations(AST::Array* solveAnnotations);
+    void setSolveAnnotations(std::shared_ptr<AST::Array>& solveAnnotations);
 
     /// Information for printing branches
     BranchInformation branchInfo;

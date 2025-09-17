@@ -1,7 +1,7 @@
 {
-  "id": "dexter",
-  "name": "Dexter",
-  "description": "Gecode Dexter Portfolio FlatZinc executable",
+  "id": "gecode-lns",
+  "name": "Gecode LNS",
+  "description": "Gecode LNS Portfolio FlatZinc executable",
   "version": "6.3.0",
   "mznlib": "../../../gecode/flatzinc/mznlib/",
   "executable": ["../../bin/fzn-gecode", "--use-pbs"],

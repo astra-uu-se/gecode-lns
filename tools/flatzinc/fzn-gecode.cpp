@@ -56,16 +56,13 @@ int main(int argc, char** argv) {
   const char* filename = argv[1];
   opt.name(filename);
 
-  std::shared_ptr<FlatZinc::FlatZincSpace> fg{nullptr};
   Rnd rnd(opt.seed());
   FlatZinc::Printer p;
   try {
-    if (!strcmp(filename, "-")) {
-        fg = std::shared_ptr<FlatZincSpace>(FlatZinc::parse(cin, p, std::cerr, nullptr, rnd));
-      } 
-      else {
-        fg = std::shared_ptr<FlatZincSpace>(FlatZinc::parse(filename, p, std::cerr, nullptr, rnd));
-    }
+    std::shared_ptr<FlatZincSpace> fg(
+    !strcmp(filename, "-")
+      ? parse(cin, p, std::cerr, nullptr, rnd)
+      : parse(filename, p, std::cerr, nullptr, rnd));
     if (fg){
       if (opt.output()) {
         std::ofstream os(opt.output());
@@ -90,7 +87,6 @@ int main(int argc, char** argv) {
     else{
       exit(EXIT_FAILURE);
     }
-    delete fg->solveAnnotations();
   } 
   catch (FlatZinc::Error& e) {
     std::cerr << "Error: " << e.toString() << std::endl;

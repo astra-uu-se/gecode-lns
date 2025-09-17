@@ -75,8 +75,8 @@ namespace Gecode { namespace Search { namespace Seq {
   class GECODE_SEARCH_EXPORT RBS : public Engine {
     /// returns false if solving fails (SS_FAILED)
     bool doRestart();
-    bool initNext(const MetaInfo&);
-    bool slave(MetaInfo& mi);
+    bool initNext(const MetaInfo&) const;
+    bool slave(const MetaInfo& mi);
 
   protected:
     /// The actual engine
