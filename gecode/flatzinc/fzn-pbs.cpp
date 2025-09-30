@@ -399,8 +399,7 @@ void SearchController::run() {
             sol->print(_ostream, _printer);
             _ostream << "----------" << std::endl;
         }
-
-        if (!se->stopped()) {
+        if (se && !se->stopped()) {
             if (sol) {
             _ostream << "==========" << std::endl;
             } else {
@@ -483,7 +482,22 @@ void AssetExecutor::runSearch(){
                 asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                 engine = upd_se;
             }
-            control._assetSwappedEngine[asset_id] = true;
+            else{
+
+                if (control.method == FlatZincSpace::SAT)
+                {
+                    DFSEngine* upd_se = new DFSEngine(asset->getFZS(), so);
+                    asset->setSE(dynamic_cast<BaseEngine*>(upd_se));
+                    se = upd_se;
+                }
+                else
+                {
+                    BABEngine* upd_se = new BABEngine(asset->getFZS(), so);
+                    asset->setSE(dynamic_cast<BaseEngine*>(upd_se));
+                    se = upd_se;
+                }
+            }
+            control.asset_swapped_se[asset_id] = true;
         }
     }
     // Stop the search timer.
@@ -672,7 +686,19 @@ _curFlatZincSpace(_flatZincSpace->deepClone(searchController._incumbentSolution,
         Driver::PBSCombinedStop::installCtrlHandler(true);
     }
 
-    _engine = new BABEngine(_curFlatZincSpace, _searchOptions);
+    search_options.cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(fopt));
+    if (fopt.interrupt()) Driver::PBSCombinedStop::installCtrlHandler(true);
+    
+    so = search_options;
+
+    if (control.method == FlatZincSpace::SAT)
+    {
+        se = new DFSEngine(fzs, search_options);
+    }
+    else
+    {
+        se = new BABEngine(fzs, search_options);
+    }
 }
 
 LNSAsset::LNSAsset(SearchController &searchController, FlatZincSpace *fg, FlatZincOptions &fopt,

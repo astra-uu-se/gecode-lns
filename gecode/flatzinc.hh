@@ -572,33 +572,8 @@ namespace Gecode { namespace FlatZinc {
     /// The introduced integer variables
     Gecode::IntVarArray iv_aux;
 
-    /// The indices in this->iv used for the objective relaxation asset:
-    std::shared_ptr<std::vector<int>> default_iv_obj_relax_indices;
-    
-    IntVarArray iv_lns;
-    BoolVarArray bv_lns;
-    FloatVarArray fv_lns;
-    SetVarArray sv_lns;
-    
-    // Gecode::IntVarArray iv_lns_default;
-    // Gecode::IntVarArray iv_lns_obj_relax;
-    // Gecode::IntVarArray non_fzn_introduced_vars;
-    
-    const int freezePercent() const {
-      return *_lns;
-    }
-    const bool hasLnsVars() const {
-      return 0 < iv_lns.size() && iv_lns.size() < iv.size();
-    }
-    Gecode::Rnd& random() {
-      return _random;
-    }
-    std::shared_ptr<unsigned long> last_best_restart;
-    std::shared_ptr<int> last_best_objective;
-    
-    std::shared_ptr<std::vector<std::vector<double>>> variable_relations;
-    std::shared_ptr<std::vector<int>> variable_impacts;
-    std::shared_ptr<CIGInfo> ciglns_info;
+    // Integer variables used for inital branching if asset in PBS is to do so:
+    std::vector<int> iv_initial_branching;
 
 
     /* === Experimental `on_restart` support === */

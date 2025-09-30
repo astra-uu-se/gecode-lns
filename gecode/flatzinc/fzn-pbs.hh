@@ -511,7 +511,6 @@ public:
     bool init();
     void run();
     // Emplace forbidden literal.
-    // void report_forbidden_literal(Literal forbidden) { forbidden_literals.emplace_back(forbidden); }
     void report_forbidden_literal(Literal forbidden) { _forbiddenLiterals.push_back(forbidden); }
     std::vector<Literal> get_forbidden_literals() { return _forbiddenLiterals; }
     // Signals that a search for a thread is finished.

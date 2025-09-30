@@ -829,14 +829,6 @@ namespace Gecode { namespace FlatZinc {
 
       iv_lns.update(*this, f.iv_lns);
 
-      // iv_lns_default.update(*this, f.iv_lns_default);
-      // iv_lns_obj_relax.update(*this, f.iv_lns_obj_relax);
-      // non_fzn_introduced_vars.update(*this, f.non_fzn_introduced_vars);
-
-      // variable_relations = f.variable_relations;
-      // ciglns_info = f.ciglns_info;
-      // hasLNSann = f.hasLNSann;
-
       intVarCount = f.intVarCount;
 
       on_restart_iv.update(*this, f.on_restart_iv);
@@ -1126,7 +1118,6 @@ namespace Gecode { namespace FlatZinc {
   void FlatZincSpace::postConstraints(std::vector<ConExpr*>& ces) {
     ConExprOrder ceo;
     std::sort(ces.begin(), ces.end(), ceo);
-    // postConstraints is called twice from parser for domain constraints and non-domain constraints
     constraints.insert(constraints.end(), ces.begin(), ces.end());
     for (unsigned int i=0; i<ces.size(); i++) {
       const ConExpr& ce = *ces[i];
@@ -2559,24 +2550,13 @@ namespace Gecode { namespace FlatZinc {
 
   void FlatZincSpace::runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
     SearchController assetSearch(this, out, p, opt, t_total);
-    switch (_method) {
-    case MIN:
-    case MAX:
-    case SAT:
       initIncumbentSolution(assetSearch._incumbentSolution);
       storeConstraintInformation();
       assetSearch.init();
       assetSearch.run();
-      break;
-    // case SAT:
-    //   runEngine<DFS>(out,p,opt,t_total);
-    //   break;
-    }
-    
     // Delete variable_relations matrix
     variable_relations = nullptr;
     variable_impacts = nullptr;
-    
   }
 
   void
@@ -2586,7 +2566,8 @@ namespace Gecode { namespace FlatZinc {
 
     if (_optVarIsInt) {
       const int local_objective = dynamic_cast<const FlatZincSpace&>(s).iv[_optVar].val();
-      if (global_solution != nullptr) {
+      // Make sure the global solution exists and that it is assigned.
+      if (global_sol != nullptr && global_sol->iv[global_sol->optVar()].assigned()){
         const int global_objective = global_solution->iv[global_solution->_optVar].val();
         if (_method == MIN){
           const int best_objective = std::min(local_objective, global_objective);
