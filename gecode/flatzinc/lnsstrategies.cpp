@@ -308,6 +308,9 @@ bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo
 }
 
 bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
+  if (fzs.default_iv_obj_relax_indices == nullptr || fzs.default_iv_obj_relax_indices->empty()) {
+    return random(fzs, mi);
+  }
   if (!shouldPerformLns(fzs, mi)) {
     return true;
   }
