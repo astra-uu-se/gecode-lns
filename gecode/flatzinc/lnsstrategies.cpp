@@ -175,18 +175,11 @@ bool LNSstrategies::random(FlatZincSpace& fzs, const MetaInfo& mi) {
   }
   updateLastBest(fzs, mi, *last);
 
-  const size_t iv_idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
+  const auto lnsVars = createLnsVars(fzs);
 
-  for (size_t var_index = 0; var_index < iv_idx_size; ++var_index) {
+  for (const auto& lnsVar : lnsVars) {
     if (fzs.random()(99U) <= fzs.freezePercent()) {
-      freezeInt(fzs, *last, var_index);
-    }
-  }
-
-  const size_t bv_idx_size = fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size();
-  for (size_t var_index = 0; var_index < bv_idx_size; ++var_index) {
-    if (fzs.random()(99U) <= fzs.freezePercent()) {
-      freezeBool(fzs, *last, var_index);
+      freeze(fzs, *last, lnsVar);
     }
   }
 
@@ -213,39 +206,34 @@ bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, un
   vector<unsigned int> indices(lnsVars.size());
   std::iota(indices.begin(), indices.end(), 0);
 
-
-
   while (!indices.empty() && (vars_frozen < limit || (indices.size() + vars_frozen < lnsVars.size()))) {
     const unsigned int index_pos = queue.empty()
       ? fzs.random()(static_cast<int>(indices.size()))
       : queue.front();
-    const unsigned int index = indices[index_pos];
+    const unsigned int indexFreezeVar = indices[index_pos];
     std::swap(indices[index_pos], indices.back());
     indices.pop_back();
     if (!queue.empty()) {
       inQueue[queue.front()] = false;
       queue.pop_front();
     }
-    if (isAssigned(fzs, lnsVars[index])) {
+    if (isAssigned(fzs, lnsVars[indexFreezeVar])) {
       continue;
-    }
-    if (indices.empty()) {
-      break;
     }
     // Get the domain size before the propagation
     for (unsigned int lnsIndex : indices) {
-      assert(index != lnsIndex);
+      assert(indexFreezeVar != lnsIndex);
       domainDifferences[lnsIndex] = static_cast<int>(domainSize(fzs, lnsVars[lnsIndex]));
     }
     // Force value accordingly, and propagate.
-    freeze(fzs, *last, lnsVars[index]);
+    freeze(fzs, *last, lnsVars[indexFreezeVar]);
     ++vars_frozen;
     fzs.status();
 
     // Add the variables that were propagated to pglns_info.
     for (unsigned int lnsIndex : indices) {
       domainDifferences[lnsIndex] -= static_cast<int>(domainSize(fzs, lnsVars[lnsIndex]));
-      assert(index != lnsIndex);
+      assert(indexFreezeVar != lnsIndex);
       if (!inQueue[lnsIndex] && domainDifferences[lnsIndex] > 0 && queue.size() < queue_size && !isAssigned(fzs, lnsVars[lnsIndex])) {
         queue.push_back(lnsIndex);
         inQueue[lnsIndex] = true;
@@ -261,85 +249,65 @@ bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, un
 }
 
 bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size) {
-    if (!shouldPerformLns(fzs, mi)) {
-      return true;
+  if (!shouldPerformLns(fzs, mi)) {
+    return true;
+  }
+  const auto last = getLast(fzs, mi);
+  if (last == nullptr) {
+    return true;
+  }
+  updateLastBest(fzs, mi, *last);
+
+  const auto lnsVars = createLnsVars(fzs);
+  int limit = floor(static_cast<double>(lnsVars.size()) * (static_cast<double>(fzs.freezePercent()) / 100.0));
+  size_t vars_frozen = 0;
+  // Set up the variables for the propagation guided LNS.
+  std::deque<unsigned int> queue;
+  std::vector<bool> inQueue(lnsVars.size(), false);
+  vector<int> domainDifferences(lnsVars.size());
+  vector<unsigned int> indices(lnsVars.size());
+  std::iota(indices.begin(), indices.end(), 0);
+
+  while (!indices.empty() && (vars_frozen < limit || (indices.size() + vars_frozen < lnsVars.size()))) {
+    const unsigned int index_pos = queue.empty()
+      ? fzs.random()(static_cast<int>(indices.size()))
+      : queue.front();
+    const unsigned int indexFreezeVar = indices[index_pos];
+
+    std::swap(indices[index_pos], indices.back());
+    indices.pop_back();
+    if (!queue.empty()) {
+      inQueue[queue.front()] = false;
+      queue.pop_front();
     }
-    const auto last = getLast(fzs, mi);
-    if (last == nullptr) {
-      return true;
+    if (isAssigned(fzs, lnsVars[indexFreezeVar])) {
+      continue;
     }
-    updateLastBest(fzs, mi, *last);
-    // const FlatZincSpace& last = static_cast<const FlatZincSpace&>(*mi.last());
-    // Set up the variables to make sure that pglns stops.
-    // double test = 0;
-    // double stop = test * 0.80;
-    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
-    int limit = floor(static_cast<double>(idx_size) * (static_cast<double>(fzs.freezePercent()) / 100.0));
-    size_t vars_frozen = 0;
-    // Set up the variables for the propagation guided LNS.
-    std::deque<PGLNSInfo> pglns_info;
-    vector<int> domainSizes(idx_size);
-    vector<int> indices(idx_size);
-    std::iota(indices.begin(), indices.end(), 0);
-    double avg_propagation;
+    // Get the domain size before the propagation
+    for (const unsigned int lnsIndex : indices) {
+      domainDifferences[lnsIndex] = static_cast<int>(domainSize(fzs, lnsVars[lnsIndex]));
+    }
+    // Force value accordingly, and propagate.
+    freeze(fzs, *last, lnsVars[indexFreezeVar]);
+    vars_frozen++;
+    fzs.status();
 
-    int index;
-    PGLNSInfo pglns_info_elem;
-
-    while (vars_frozen < limit || (indices.size() + vars_frozen < idx_size)) {
-      if (indices.empty()) break;
-      std::fill(domainSizes.begin(), domainSizes.end(), 0);
-      avg_propagation = 0;
-      // std::fill(domainSizes.begin(), domainSizes.end(), 0);
-
-      if (pglns_info.empty()){
-        index = indices[fzs.random()(static_cast<int>(indices.size()))];
-        std::swap(indices[index], indices.back());
-        indices.pop_back();
-        if (lnsIntVar(fzs, index).assigned()) {
-          continue;
-        }
-      }
-      else{
-        pglns_info_elem = pglns_info.front();
-        index = indices[pglns_info_elem.lnsIndex];
-        std::swap(indices[pglns_info_elem.lnsIndex], indices.back());
-        indices.pop_back();
-        pglns_info.pop_front();
-      }
-      if (indices.empty()) break;
-      // Get the domain size before the propagation
-      for (unsigned long int i = 0; i < indices.size(); i++) {
-        if (index != indices[i] && lnsIntVar(fzs, indices[i]).assigned()) {
-          domainSizes[indices[i]] = lnsIntVar(fzs, indices[i]).size();
-        }
-      }
-      // Force value accordinly, and propagate.
-      freezeInt(fzs, *last, index);
-      vars_frozen++;
-      fzs.status();
-      
-      // Add the variables that were propagated to pglns_info.
-      for (unsigned long int i = 0; i < indices.size(); i++) {
-        if (index != indices[i] && !lnsIntVar(fzs, indices[i]).assigned()) {
-          int diff = domainSizes[indices[i]] - lnsIntVar(fzs, indices[i]).size();
-          domainSizes[indices[i]] = diff;
-          avg_propagation += diff;
-        }
-      }
+    // Add the variables that were propagated to the queue.
+    for (const unsigned int lnsIndex : indices) {
+      domainDifferences[lnsIndex] -= static_cast<int>(domainSize(fzs, lnsVars[lnsIndex]));
       // avg_propagation /= indices.size();
-      for (unsigned long int i = 0; i < indices.size(); i++){
-        if (domainSizes[indices[i]] > 0 && pglns_info.size() < queue_size && index != indices[i] && lnsIntVar(fzs, indices[i]).assigned()){
-          pglns_info.push_back({i, domainSizes[indices[i]]});
-        }
+      if (!inQueue[lnsIndex] && domainDifferences[lnsIndex] > 0 && queue.size() < queue_size && !isAssigned(fzs, lnsVars[lnsIndex])) {
+        queue.emplace_back(lnsIndex);
+        inQueue[lnsIndex] = true;
       }
-      
-      // Sort the variables and indexes in non_fzn_introduced_vars according to the difference in domain size in pglns_info.
-      std::sort(pglns_info.begin(), pglns_info.end(), [](const PGLNSInfo& a, const PGLNSInfo& b) {
-        return a.domainDiff < b.domainDiff;
-      });
     }
-    return false;
+
+    // Sort the variables and indexes in non_fzn_introduced_vars according to the difference in domain size in pglns_info.
+    std::sort(queue.begin(), queue.end(), [&domainDifferences](const unsigned int& i1, const unsigned int& i2) {
+      return domainDifferences[i1] < domainDifferences[i2];
+    });
+  }
+  return false;
 }
 
 bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){

@@ -51,7 +51,7 @@ public:
     // Propagation guided LNS
     static bool propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size);
     // Reversed propagation guided LNS
-    bool reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size);
+    static bool reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size);
     // Objective relaxation LNS
     bool objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi);
     // Cost impact guided LNS
