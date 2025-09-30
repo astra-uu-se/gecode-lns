@@ -176,7 +176,7 @@ void SearchController::solutionStatistics(BaseAsset* asset, Support::Timer& t_to
                 << std::endl;
         }
         for (long unsigned int i = 0; i < _assetNumSolutions.size(); i++){
-            _ostream << "%%%mzn-stat: asset " << _assets[i]->assetTypeStr() << " found " << _assetNumSolutions[i] << " solutions." << endl;
+            _ostream << "%%%mzn-stat: asset " << _assets[i]->assetTypeStr() << " found " << _assetNumSolutions[i] << " solution(s)." << endl;
         }
     }
     else{
