@@ -311,25 +311,26 @@ bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo
 }
 
 bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
-    if (!shouldPerformLns(fzs, mi)) {
-      return true;
-    }
-    const auto last = getLast(fzs, mi);
-    if (last == nullptr) {
-      return true;
-    }
-    updateLastBest(fzs, mi, *last);
+  if (!shouldPerformLns(fzs, mi)) {
+    return true;
+  }
+  const auto last = getLast(fzs, mi);
+  if (last == nullptr) {
+    return true;
+  }
+  updateLastBest(fzs, mi, *last);
 
-    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.default_iv_obj_relax_indices->size();
-    for (size_t i = 0; i < idx_size; i++) {
-      if (fzs.random()(99U) <= fzs.freezePercent()) {
-        if (!lnsIntVar(fzs, i, fzs.default_iv_obj_relax_indices).assigned()){
-          freezeInt(fzs, *last, i, fzs.default_iv_obj_relax_indices);
-        }
+  const auto lnsVars = createLnsVars(fzs);
+
+  for (size_t i = 0; i < fzs.default_iv_obj_relax_indices->size(); i++) {
+    if (fzs.random()(99U) <= fzs.freezePercent()) {
+      if (!lnsIntVar(fzs, i, fzs.default_iv_obj_relax_indices).assigned()){
+        freezeInt(fzs, *last, i, fzs.default_iv_obj_relax_indices);
       }
     }
-    return false;
   }
+  return false;
+}
 
 int getBound(const IntVar& var, bool minimize){
   return minimize ? var.min() : var.max();

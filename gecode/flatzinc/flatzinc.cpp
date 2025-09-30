@@ -1176,9 +1176,8 @@ namespace Gecode { namespace FlatZinc {
       // Case 1: coefficients are similar (a standard deviation smaller than 1)
       // Case 2: Some coefficients are larger than other, keep those non-fixed and make those with smaller mean freezeable, to relax the objective.
       default_iv_obj_relax_indices = std::make_shared<std::vector<int>>();
-      int num_relevant_vars = 0;
       for (size_t i = 0; i < vars->a.size(); i++){
-        if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && iv[vars->a[i]->getIntVar()].size() > 2 && (stdev < 1 || coef->a[i]->getInt() < mean)) {
+        if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && !iv[vars->a[i]->getIntVar()].assigned() && (stdev < 1 || coef->a[i]->getInt() < mean)) {
           default_iv_obj_relax_indices->emplace_back(vars->a[i]->getIntVar());
         }
       }
