@@ -55,7 +55,7 @@ public:
     // Objective relaxation LNS
     static bool objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi);
     // Cost impact guided LNS
-    bool costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int dives, double alpha);
+    static bool costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int dives, double alpha);
     // Static Variable Dependency LNS
     bool staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& mi);
 

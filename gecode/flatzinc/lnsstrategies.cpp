@@ -332,6 +332,10 @@ bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
   return false;
 }
 
+int getBound(const BoolVar& var, bool minimize) {
+  return minimize ? var.min() : var.max();
+}
+
 int getBound(const IntVar& var, bool minimize){
   return minimize ? var.min() : var.max();
 }
@@ -351,53 +355,52 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   const bool foundBetter = updateLastBest(fzs, mi, *last);
 
   // Use a vector of indices, select variables from it.
-  const size_t size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
-  std::vector<int> indices(size);
+  const auto lnsVars = createLnsVars(fzs);
+  std::vector<int> indices(lnsVars.size());
   std::iota(indices.begin(), indices.end(), 0);
 
   // Note that we are constructing the set of variables that are relaxed, not frozen.
 
-  std::default_random_engine engine(fzs.random()(999U));
   // Update scores and r every 10th restart or every time a better solution is found.
   if (fzs.ciglns_info == nullptr || fzs.ciglns_info->bound_differences.empty() || mi.restart() % 10 == 0 || foundBetter){
     if (fzs.ciglns_info == nullptr) {
       fzs.ciglns_info = std::make_shared<CIGInfo>(0);
     }
     fzs.ciglns_info->bound_differences.clear();
-    fzs.ciglns_info->bound_differences.resize(size, 0.0);
+    fzs.ciglns_info->bound_differences.resize(lnsVars.size(), 0.0);
     fzs.ciglns_info->scores.clear();
-    fzs.ciglns_info->scores.resize(size);
+    fzs.ciglns_info->scores.resize(lnsVars.size());
     fzs.ciglns_info->bound_diff_sum = 0.0;
     fzs.ciglns_info->r = 0.0;
     
     for (unsigned int dive = 0; dive < dives; dive++){
       // Clone the space to make a dive possible.
-      FlatZincSpace* fzs_clone = static_cast<FlatZinc::FlatZincSpace*>(fzs.clone());
+      auto* fzs_clone = dynamic_cast<FlatZinc::FlatZincSpace*>(fzs.clone());
       // Create uniformly randomized permutations of the variables.
       
       // Depending on opt method, calculate the bound differences after fixing the variables.
-      for (size_t i = 0; i < size; ++i){
-        std::swap(indices[i], indices[randInInterval(i, size, fzs.random())]);
+      for (int i = 0; i < static_cast<int>(lnsVars.size()); ++i){
+        std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
 
         const int oldBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
         // The variables stored in vars.intVar are those variables found in iv_lns_default.
-        const int var_index = indices[i];
-        freezeInt(*fzs_clone, *last, var_index);
+        const int lnsFreezeVar = indices[i];
+        freeze(*fzs_clone, *last, lnsVars[lnsFreezeVar]);
         fzs_clone->status();
-        
+
         const int newBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
         // Corresponds to (3) in the paper:
         // if minimising, then newBound >= oldBound. If newBound is high, then impact is high
         // else, maximising and oldBound >= newBound. If newBound is low, then impact is high
         const int impact = std::abs(newBound - oldBound);
 
-        fzs.ciglns_info->bound_differences[var_index] += static_cast<double>(impact);
+        fzs.ciglns_info->bound_differences[lnsFreezeVar] += static_cast<double>(impact);
         fzs.ciglns_info->bound_diff_sum += static_cast<double>(impact);
       }
       delete fzs_clone;
     }
     // Divide each element in bound differences by dives.
-    for (size_t i = 0; i < size; ++i){
+    for (size_t i = 0; i < lnsVars.size(); ++i){
       // corresponds to (6) in the paper:
       fzs.ciglns_info->bound_differences[i] /= dives;
     }
@@ -405,18 +408,18 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
     fzs.ciglns_info->bound_diff_sum /= dives;
 
     // Compute the score for each variable.
-    for (size_t i = 0; i < size; ++i){
+    for (size_t i = 0; i < lnsVars.size(); ++i){
       // corresponds to (7) in the paper:
       const double score = (alpha * fzs.ciglns_info->bound_differences[i]) + 
-                           ((1 - alpha) * (size) * fzs.ciglns_info->bound_diff_sum);
+                           ((1 - alpha) * static_cast<double>(lnsVars.size()) * fzs.ciglns_info->bound_diff_sum);
       fzs.ciglns_info->r += score;
       fzs.ciglns_info->scores[i] = score;
     }
   }
 
   const double relaxFactor = static_cast<double>(100 - fzs.freezePercent()) / 100.0;
-  const size_t numVarsToRelax = static_cast<size_t>(std::max<size_t>(1, 
-    ceil(relaxFactor * static_cast<double>(size))));
+  const size_t numVarsToRelax = std::max<size_t>(1,
+    ceil(relaxFactor * static_cast<double>(lnsVars.size())));
 
   // The following it based on Algorithm 1 from the paper:
   // Select the variables to relax.
@@ -430,8 +433,8 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
     
     int best_index = -1;
     double best_score = 0;
-    for (int i = 0; i < indices.size(); ++i){
-      std::swap(indices[i], indices[randInInterval(i, size, fzs.random())]);
+    for (int i = 0; i < static_cast<int>(indices.size()); ++i) {
+      std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
       const double score = fzs.ciglns_info->scores[indices[i]];
       v -= score;
       if (v <= 0 || best_index < 0 || best_score < score) {
@@ -449,12 +452,11 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   }
   
   // freeze the chosen variables.
-  for (const int var_index : indices) {
-    freezeInt(fzs, *last, var_index);
+  for (const int lnsIndex : indices) {
+    freezeInt(fzs, *last, lnsIndex);
   }
   // Only return false if variables were relaxed.
   return numRelaxed > 0;
-
 }
 
 int selectRandomBestIndex(FlatZincSpace& fzs, std::vector<int>& indices, int n){
@@ -462,8 +464,8 @@ int selectRandomBestIndex(FlatZincSpace& fzs, std::vector<int>& indices, int n){
   int best_impact = -1;
   int best_index = -1;
   
-  for (size_t i = 0; i < std::min<int>(n, indices.size()); ++i) {
-    std::swap(indices[i], indices[randInInterval(i, indices.size(), fzs.random())]);
+  for (int i = 0; i < std::min<int>(n, static_cast<int>(indices.size())); ++i) {
+    std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
     const int impact = (*fzs.variable_impacts)[indices[i]];
     if (best_index < 0 || best_impact < impact) {
       best_impact = impact;
@@ -478,7 +480,7 @@ int selectRandomRelatedIndex(FlatZincSpace& fzs, int lns_index, std::vector<int>
   // Given indices to relations, select variable with best relations.
   int best_index = -1;
   double best_relation = -1;
-  for (int i = 0; i < std::min<int>(n, indices.size()); i++){
+  for (int i = 0; i < std::min<int>(n, static_cast<int>(indices.size())); i++){
     std::swap(indices[i], indices[randInInterval(i, indices.size(), fzs.random())]);
     if (best_index < 0 || (*fzs.variable_relations)[lns_index][indices[i]] > best_relation){
       best_relation = (*fzs.variable_relations)[lns_index][indices[i]];
