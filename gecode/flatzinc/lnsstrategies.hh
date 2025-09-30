@@ -57,7 +57,7 @@ public:
     // Cost impact guided LNS
     static bool costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int dives, double alpha);
     // Static Variable Dependency LNS
-    bool staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& mi);
+    static bool staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& mi);
 
 };
 
