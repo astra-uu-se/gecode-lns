@@ -85,6 +85,14 @@ namespace Gecode { namespace Driver {
           ((ts != nullptr) && ts->stop(s,o)) ||
           ((rs != nullptr) && rs->stop(s,o));
       }
+      [[nodiscard]] bool done() const override {
+        return sigint ||
+          (search_finished->load()) ||
+          ((ns != nullptr) && ns->done()) ||
+          ((fs != nullptr) && fs->done()) ||
+          ((ts != nullptr) && ts->done()) ||
+          ((rs != nullptr) && rs->done());
+      }
       /// Report reason why search has been stopped
       int reason(const Search::Statistics& s, const Search::Options& o) {
         return
@@ -173,6 +181,14 @@ namespace Gecode { namespace Driver {
         ((fs != nullptr) && fs->stop(s,o)) ||
         ((ts != nullptr) && ts->stop(s,o)) ||
         ((rs != nullptr) && rs->stop(s,o));
+    }
+    [[nodiscard]] bool done() const override {
+      return
+        sigint ||
+        ((ns != nullptr) && ns->done()) ||
+        ((fs != nullptr) && fs->done()) ||
+        ((ts != nullptr) && ts->done()) ||
+        ((rs != nullptr) && rs->done());
     }
     /// Report reason why search has been stopped
     int reason(const Search::Statistics& s, const Search::Options& o) {

@@ -379,7 +379,9 @@ class DFSAsset : public BaseAsset {
         
         void setShavingStart(long unsigned int start) override { _shavingStart = start; }
 
-        void setEngine(BaseEngine* se) override { this->_engine = dynamic_cast<BABEngine*>(se); }
+        void setEngine(BaseEngine* se) override { this->_engine = se; }
+
+        [[nodiscard]] BaseEngine* engine() const override { return _engine; }
 
         SearchController& _searchController;
 
@@ -389,7 +391,7 @@ class DFSAsset : public BaseAsset {
 
         Search::Options _searchOptions;
         FlatZincSpace* _curFlatZincSpace{nullptr};
-        BABEngine* _engine{nullptr};
+        BaseEngine* _engine{nullptr};
         long unsigned int _shavingStart{0};
 };
 

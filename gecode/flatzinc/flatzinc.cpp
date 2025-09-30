@@ -1953,11 +1953,15 @@ namespace Gecode { namespace FlatZinc {
         continue;
       }
       for (size_t i = 0; i < ce->ann->a.size(); ++i) {
-        if (!ce->ann->a[i]->isCall("defines_var")) {
+        if (!ce->ann->a[i]->isCall("defines_var") && !ce->ann->a[i]->isCall("gecode_defines_vars")) {
           continue;
         }
 
-        const auto* call = ce->ann->a[i]->getCall("defines_var");
+        const auto* call = ce->ann->a[i]->getCall(
+          ce->ann->a[i]->isCall("defines_var")
+          ? "defines_var"
+          : "gecode_defines_vars");
+
         auto* var = call->args;
         if (var->isArray()) {
           const auto* varArr = var->getArray();
@@ -2567,7 +2571,7 @@ namespace Gecode { namespace FlatZinc {
     if (_optVarIsInt) {
       const int local_objective = dynamic_cast<const FlatZincSpace&>(s).iv[_optVar].val();
       // Make sure the global solution exists and that it is assigned.
-      if (global_sol != nullptr && global_sol->iv[global_sol->optVar()].assigned()){
+      if (global_solution != nullptr && global_solution->iv[global_solution->optVar()].assigned()){
         const int global_objective = global_solution->iv[global_solution->_optVar].val();
         if (_method == MIN){
           const int best_objective = std::min(local_objective, global_objective);

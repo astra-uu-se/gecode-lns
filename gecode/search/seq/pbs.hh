@@ -61,6 +61,7 @@ namespace Gecode { namespace Search { namespace Seq {
     void share(SharedStopInfo* ssi);
     /// Return true if portfolio engine must be stopped
     virtual bool stop(const Statistics& s, const Options& o);
+    [[nodiscard]] bool done() const;
   };
 
   /// Runnable slave of a portfolio master

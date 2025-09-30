@@ -256,6 +256,12 @@ namespace Gecode { namespace FlatZinc {
       return ret;
     }
 
+    void store(const std::shared_ptr<FlatZincSpace> &desired) {
+      _mutex.lock();
+      _space = desired;
+      _mutex.unlock();
+    }
+
     [[nodiscard]] bool hasValue() const { return _space != nullptr; }
 
   };
@@ -574,6 +580,46 @@ namespace Gecode { namespace FlatZinc {
 
     // Integer variables used for inital branching if asset in PBS is to do so:
     std::vector<int> iv_initial_branching;
+    /// The indices in this->iv used for the objective relaxation asset:
+    std::shared_ptr<std::vector<int>> default_iv_obj_relax_indices;
+
+    IntVarArray iv_lns;
+    BoolVarArray bv_lns;
+    FloatVarArray fv_lns;
+    SetVarArray sv_lns;
+
+    // Gecode::IntVarArray iv_lns_default;
+    // Gecode::IntVarArray iv_lns_obj_relax;
+    // Gecode::IntVarArray non_fzn_introduced_vars;
+
+    [[nodiscard]] unsigned int freezePercent() const {
+      return *_lns;
+    }
+    [[nodiscard]] bool hasLnsVars() const {
+      return (0 < iv_lns.size() && iv_lns.size() < iv.size()) ||
+        (0 < bv_lns.size() && bv_lns.size() < bv.size()) ||
+          (0 < fv_lns.size() && fv_lns.size() < fv.size()) ||
+            (0 < sv_lns.size() && sv_lns.size() < sv.size());
+    }
+
+
+    [[nodiscard]] int numLnsVars() const {
+      return iv_lns.size() + bv_lns.size() + fv_lns.size() + sv_lns.size();
+    }
+
+    [[nodiscard]] int numVars() const {
+      return iv.size() + bv.size() + fv.size() + sv.size();
+    }
+
+    Gecode::Rnd& random() {
+      return _random;
+    }
+    std::shared_ptr<unsigned long> last_best_restart;
+    std::shared_ptr<int> last_best_objective;
+
+    std::shared_ptr<std::vector<std::vector<double>>> variable_relations;
+    std::shared_ptr<std::vector<int>> variable_impacts;
+    std::shared_ptr<CIGInfo> ciglns_info;
 
 
     /* === Experimental `on_restart` support === */

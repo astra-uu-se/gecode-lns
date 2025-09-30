@@ -19,8 +19,15 @@ using namespace std;
 using namespace Gecode;
 using namespace Gecode::FlatZinc;
 
+enum VAR_TYPE  {
+    VAR_BOOL,
+    VAR_INT,
+    VAR_FLOAT,
+    VAR_SET_OF_VAR
+};
+
 struct PGLNSInfo {
-    unsigned long int ivIndex;
+    unsigned long int lnsIndex;
     int domainDiff;
 };
 
@@ -40,9 +47,9 @@ public:
     ~LNSstrategies() = default; // destructor
 
     // Standard LNS
-    bool random(FlatZincSpace& fzs, const MetaInfo& mi);
+    static bool random(FlatZincSpace& fzs, const MetaInfo& mi);
     // Propagation guided LNS
-    bool propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size);
+    static bool propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size);
     // Reversed propagation guided LNS
     bool reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size);
     // Objective relaxation LNS

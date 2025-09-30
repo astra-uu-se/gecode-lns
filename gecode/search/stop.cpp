@@ -66,6 +66,11 @@ namespace Gecode { namespace Search {
     return s.node > l;
   }
 
+  bool NodeStop::done() const {
+    return false;
+  }
+
+
 
   /*
    * Stopping for failure limit
@@ -74,6 +79,10 @@ namespace Gecode { namespace Search {
   bool
   FailStop::stop(const Statistics& s, const Options&) {
     return s.fail > l;
+  }
+
+  bool FailStop::done() const {
+    return false;
   }
 
 
@@ -86,6 +95,11 @@ namespace Gecode { namespace Search {
     return t.stop() > l;
   }
 
+  bool
+  TimeStop::done() const {
+    return t.stop() > l;
+  }
+
   /*
    * Stopping for restart limit
    *
@@ -93,6 +107,11 @@ namespace Gecode { namespace Search {
   bool
   RestartStop::stop(const Statistics& s, const Options&) {
     return s.restart > l;
+  }
+
+  bool
+  RestartStop::done() const {
+    return false;
   }
 
 }}

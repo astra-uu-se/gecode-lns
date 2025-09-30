@@ -805,6 +805,7 @@ namespace Gecode { namespace Search {
     Stop(void);
     /// Stop search, if returns true
     virtual bool stop(const Statistics& s, const Options& o) = 0;
+    [[nodiscard]] virtual bool done() const = 0;
     /// Destructor
     virtual ~Stop(void);
     //@}
@@ -842,6 +843,7 @@ namespace Gecode { namespace Search {
     void limit(unsigned long long int l);
     /// Return true if node limit is exceeded
     virtual bool stop(const Statistics& s, const Options& o);
+    [[nodiscard]] bool done() const override;
   };
 
   /**
@@ -865,6 +867,7 @@ namespace Gecode { namespace Search {
     void limit(unsigned long long int l);
     /// Return true if failure limit is exceeded
     virtual bool stop(const Statistics& s, const Options& o);
+    [[nodiscard]] bool done() const override;
   };
 
   /**
@@ -888,6 +891,7 @@ namespace Gecode { namespace Search {
     void reset(void);
     /// Return true if time limit is exceeded
     virtual bool stop(const Statistics& s, const Options& o);
+    [[nodiscard]] bool done() const override;
   };
 
   /**
@@ -907,6 +911,7 @@ namespace Gecode { namespace Search {
     void limit(unsigned long long int l);
     /// Return true if failure limit is exceeded
     virtual bool stop(const Statistics& s, const Options& o);
+    [[nodiscard]] bool done() const override;
   };
 
 }}

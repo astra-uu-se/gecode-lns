@@ -55,10 +55,11 @@ namespace Gecode { namespace Search { namespace Seq {
     m_stat += s;
   }
 
-  forceinline bool
-  RestartStop::enginestopped(void) const {
-    return e_stopped;
+  forceinline
+  bool RestartStop::done() const {
+    return e_stopped || m_stop.done();
   }
+
 
   forceinline Statistics
   RestartStop::metastatistics(void) const {

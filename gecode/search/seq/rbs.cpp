@@ -59,7 +59,7 @@ namespace Gecode { namespace Search { namespace Seq {
     return false;
   }
 
-  bool RBS::initNext(const MetaInfo& mi) const {
+  bool RBS::initNext(const MetaInfo& mi) {
     // Reset number of no-goods found
     e->nogoods().ng(0);
     const bool requiresRestart = master->master(mi);
@@ -112,7 +112,7 @@ namespace Gecode { namespace Search { namespace Seq {
         last = std::shared_ptr<Space>(n->clone());
         return n;
       }
-      if (stop->enginestopped()) {
+      if (stop->done()) {
         return nullptr;
       }
       // The engine must perform a true restart

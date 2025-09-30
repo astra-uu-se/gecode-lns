@@ -51,6 +51,10 @@ void SearchController::thread_done() {
 bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &sol,
                                           unsigned int asset_id) {
     // If the optimum was found, then stop there is no need to update the best solution.
+    for (int i = 0; i < sol->iv.size(); ++i) {
+        assert(sol->iv[i].width() == 1);
+    }
+
     _solutionMutex.lock();
     if (_optimumFound->load()){
         _solutionMutex.unlock();
@@ -438,19 +442,40 @@ void AssetExecutor::runSearch(){
     asset->setStatusStatistics(statusStatistics);
     // Run the search engine.
     assert(engine != nullptr);
-    while (auto solution = std::shared_ptr<FlatZincSpace>(engine->next())) {
-        // TODO: Make sure that search did not finish due to LNS restart limit reached etc.
-        // If one asset finished, stop looking for more solutions.
-        const bool isBestFoundSol = control.updateBestSolution(solution, asset_id);
-        if (!isBestFoundSol){
-            continue;
-        }
+    std::shared_ptr<FlatZincSpace> sol;
+    bool solWasBestSol = false;
+
+    while (auto nextSol = std::shared_ptr<FlatZincSpace>(engine->next())) {
+        const auto stat = nextSol->status();
         if (control._optimumFound->load()) {
             break;
         }
-        if (solution->method() == FlatZincSpace::SAT) {
-            continue;
+        // If last solution was not the current best solution, delete it.
+        if (!solWasBestSol && sol != nullptr){
+            sol = nullptr;
         }
+        sol = nextSol;
+
+        // If a solution is found, then all assets can stop their search
+        // As the problem has been satisfied.
+        if (control._method == FlatZincSpace::SAT){
+            control._solutionMutex.lock();
+            if (control._optimumFound->load()){
+                control._solutionMutex.unlock();
+                break;
+            }
+            control._optimumFound->store(true);
+            control._incumbentSolution->store(sol);
+            control._assetNumSolutions[asset_id]++;
+            control._finishedAsset = asset_id;
+            solWasBestSol = true;
+            control._solutionMutex.unlock();
+            break;
+        }
+
+        // TODO: Make sure that search did not finish due to LNS restart limit reached etc.
+        // If one asset finished, stop looking for more solutions.
+        solWasBestSol = control.updateBestSolution(sol, asset_id);
 
         // Apply nq constraints to make asset take advantage of shaving.
         std::vector<Literal> local_forbidden_literals = control.get_forbidden_literals();
@@ -478,26 +503,20 @@ void AssetExecutor::runSearch(){
                 asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                 engine = upd_se;
             } else {
-                auto* upd_se = new BABEngine(asset->flatZincSpace(), searchOptions);
-                asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
-                engine = upd_se;
-            }
-            else{
-
-                if (control.method == FlatZincSpace::SAT)
+                if (control._method == FlatZincSpace::SAT)
                 {
-                    DFSEngine* upd_se = new DFSEngine(asset->getFZS(), so);
-                    asset->setSE(dynamic_cast<BaseEngine*>(upd_se));
-                    se = upd_se;
+                    auto* upd_se = new DFSEngine(asset->flatZincSpace(), searchOptions);
+                    asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
+                    engine = upd_se;
                 }
                 else
                 {
-                    BABEngine* upd_se = new BABEngine(asset->getFZS(), so);
-                    asset->setSE(dynamic_cast<BaseEngine*>(upd_se));
-                    se = upd_se;
+                    auto* upd_se = new BABEngine(asset->flatZincSpace(), searchOptions);
+                    asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
+                    engine = upd_se;
                 }
             }
-            control.asset_swapped_se[asset_id] = true;
+            control._assetSwappedEngine[asset_id] = true;
         }
     }
     // Stop the search timer.
@@ -686,18 +705,13 @@ _curFlatZincSpace(_flatZincSpace->deepClone(searchController._incumbentSolution,
         Driver::PBSCombinedStop::installCtrlHandler(true);
     }
 
-    search_options.cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(fopt));
-    if (fopt.interrupt()) Driver::PBSCombinedStop::installCtrlHandler(true);
-    
-    so = search_options;
-
-    if (control.method == FlatZincSpace::SAT)
+    if (searchController._method == FlatZincSpace::SAT)
     {
-        se = new DFSEngine(fzs, search_options);
+        _engine = new DFSEngine(_curFlatZincSpace, _searchOptions);
     }
     else
     {
-        se = new BABEngine(fzs, search_options);
+        _engine = new BABEngine(_curFlatZincSpace, _searchOptions);
     }
 }
 

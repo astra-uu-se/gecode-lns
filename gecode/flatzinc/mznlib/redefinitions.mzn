@@ -136,3 +136,12 @@ predicate int_lin_ne_imp(array [int] of int: as, array [int] of var int: bs,
                          int: c, var bool: r);
 
 predicate set_in_imp(var int: x, set of int: S, var bool: r);
+
+annotation gecode_defines_vars(array [$U] of var bool: arr);
+annotation gecode_defines_vars(array [$U] of var int: arr);
+annotation gecode_defines_vars(array [$U] of var float: arr);
+annotation gecode_defines_vars(array [$U] of var set of int: arr);
+annotation defines_var(array [$U] of var bool: x) = gecode_defines_vars(x);
+annotation defines_var(array [$U] of var int: x) = gecode_defines_vars(x);
+annotation defines_var(array [$U] of var float: x) = gecode_defines_vars(x);
+annotation defines_var(array [$U] of var set of int: x) = gecode_defines_vars(x);

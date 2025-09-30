@@ -51,7 +51,7 @@ namespace Gecode { namespace Support {
     /// Start timer
     void start(void);
     /// Get time since start of timer
-    double stop(void);
+    [[nodiscard]] double stop(void) const;
   };
 
   inline void
@@ -60,7 +60,7 @@ namespace Gecode { namespace Support {
   }
 
   inline double
-  Timer::stop(void) {
+  Timer::stop(void) const {
     std::chrono::duration<double, std::milli> duration = std::chrono::steady_clock::now() - t0;
     return duration.count();
   }

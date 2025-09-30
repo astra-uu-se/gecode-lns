@@ -61,12 +61,11 @@ namespace Gecode { namespace Search { namespace Seq {
     RestartStop(Stop& s, std::shared_ptr<std::atomic<bool>> optimum_found);
     /// Return true if meta engine must be stopped
     virtual bool stop(const Statistics& s, const Options& o);
+    [[nodiscard]] bool done() const override;
     /// Set current limit for the engine to \a l fails
     void limit(const Statistics& s, unsigned long long int l);
     /// Update statistics
     void update(const Search::Statistics& s);
-    /// Return whether the engine has been stopped
-    bool enginestopped(void) const;
     /// Return statistics for the meta engine
     Statistics metastatistics(void) const;
   };
@@ -75,7 +74,7 @@ namespace Gecode { namespace Search { namespace Seq {
   class GECODE_SEARCH_EXPORT RBS : public Engine {
     /// returns false if solving fails (SS_FAILED)
     bool doRestart();
-    bool initNext(const MetaInfo&) const;
+    bool initNext(const MetaInfo&);
     bool slave(const MetaInfo& mi);
 
   protected:

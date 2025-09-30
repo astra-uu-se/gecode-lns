@@ -41,28 +41,52 @@ std::shared_ptr<const FlatZincSpace> getLast(FlatZincSpace& fzs, const MetaInfo&
   return nullptr;
 }
 
-const Gecode::IntVar& lnsVarConst(const FlatZincSpace& fzs, size_t index) {
+const BoolVar& lnsBoolVarConst(const FlatZincSpace& fzs, size_t index) {
+  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[index];
+}
+
+const BoolVar& lnsBoolVarConst(const FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
+  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[(*iv_indices)[index]];
+}
+
+BoolVar& lnsBoolVar(FlatZincSpace& fzs, size_t index) {
+  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[index];
+}
+
+BoolVar& lnsBoolVar(FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
+  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[(*iv_indices)[index]];
+}
+
+void freezeBool(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index) {
+  rel(fzs, lnsBoolVar(fzs, index), IRT_EQ, lnsBoolVarConst(last, index).val());
+}
+
+void freezeBool(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
+  rel(fzs, lnsBoolVar(fzs, index, iv_indices), IRT_EQ, lnsBoolVarConst(last, index, iv_indices).val());
+}
+
+const IntVar& lnsIntVarConst(const FlatZincSpace& fzs, size_t index) {
   return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[index];
 }
 
-const Gecode::IntVar& lnsVarConst(const FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
+const IntVar& lnsIntVarConst(const FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
   return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
 }
 
-Gecode::IntVar& lnsVar(FlatZincSpace& fzs, size_t index) {
+IntVar& lnsIntVar(FlatZincSpace& fzs, size_t index) {
   return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[index];
 }
 
-Gecode::IntVar& lnsVar(FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
+IntVar& lnsIntVar(FlatZincSpace& fzs, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
   return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
 }
 
-void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index) {
-  rel(fzs, lnsVar(fzs, index), IRT_EQ, lnsVarConst(last, index).val());
+void freezeInt(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index) {
+  rel(fzs, lnsIntVar(fzs, index), IRT_EQ, lnsIntVarConst(last, index).val());
 }
 
-void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  rel(fzs, lnsVar(fzs, index, iv_indices), IRT_EQ, lnsVarConst(last, index, iv_indices).val());
+void freezeInt(FlatZincSpace& fzs, const FlatZincSpace& last, size_t index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
+  rel(fzs, lnsIntVar(fzs, index, iv_indices), IRT_EQ, lnsIntVarConst(last, index, iv_indices).val());
 }
 
 bool shouldPerformLns(const FlatZincSpace& fzs, const MetaInfo& mi) {
@@ -70,6 +94,60 @@ bool shouldPerformLns(const FlatZincSpace& fzs, const MetaInfo& mi) {
          (fzs.freezePercent() > 0 && fzs.freezePercent() < 100) &&
          hasLast(fzs, mi));
 }
+
+std::vector<std::pair<VAR_TYPE, int>> createLnsVars(const FlatZincSpace& fzs) {
+  vector<std::pair<VAR_TYPE, int>> lnsVars;
+  lnsVars.reserve(fzs.hasLnsVars() ? fzs.numLnsVars() : fzs.numVars());
+  const int numBoolVars = fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size();
+  for (size_t i = 0; i < numBoolVars; ++i) {
+    lnsVars.emplace_back(VAR_BOOL, i);
+  }
+  const int numIntVars = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
+  for (size_t i = 0; i < numIntVars; ++i) {
+    lnsVars.emplace_back(VAR_INT, i);
+  }
+  const int numFloatVars = fzs.hasLnsVars() ? fzs.fv_lns.size() : fzs.fv.size();
+  for (size_t i = 0; i < numFloatVars; ++i) {
+    lnsVars.emplace_back(VAR_FLOAT, i);
+  }
+  const int numSetVars = fzs.hasLnsVars() ? fzs.sv_lns.size() : fzs.sv.size();
+  for (size_t i = 0; i < numSetVars; ++i) {
+    lnsVars.emplace_back(VAR_SET_OF_VAR, i);
+  }
+  return lnsVars;
+}
+
+bool isAssigned(const FlatZincSpace& fzs, const std::pair<VAR_TYPE, int>& var_index) {
+  switch (var_index.first) {
+    case VAR_BOOL:
+      return lnsBoolVarConst(fzs, var_index.second).assigned();
+    case VAR_INT:
+    default:
+      return lnsIntVarConst(fzs, var_index.second).assigned();
+
+  }
+}
+
+unsigned int domainSize(const FlatZincSpace& fzs, const std::pair<VAR_TYPE, int>& var_index) {
+  switch (var_index.first) {
+    case VAR_BOOL:
+      return lnsBoolVarConst(fzs, var_index.second).size();
+    case VAR_INT:
+      default:
+        return lnsIntVarConst(fzs, var_index.second).size();
+  }
+}
+
+void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, const std::pair<VAR_TYPE, int>& var_index) {
+  switch (var_index.first) {
+    case VAR_BOOL:
+      return freezeBool(fzs, last, var_index.second);
+    case VAR_INT:
+    default:
+      return freezeInt(fzs, last, var_index.second);
+  }
+}
+
 
 bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace& last) {
   const bool minimizing = fzs.method() == FlatZincSpace::MIN;
@@ -88,92 +166,98 @@ bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace&
 }
 
 bool LNSstrategies::random(FlatZincSpace& fzs, const MetaInfo& mi) {
-    if (!shouldPerformLns(fzs, mi)) {
-      return true;
-    }
-    const auto last = getLast(fzs, mi);
-    if (last == nullptr) {
-      return true;
-    }
-    updateLastBest(fzs, mi, *last);
-    
-    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
+  if (!shouldPerformLns(fzs, mi)) {
+    return true;
+  }
+  const auto last = getLast(fzs, mi);
+  if (last == nullptr) {
+    return true;
+  }
+  updateLastBest(fzs, mi, *last);
 
-    for (size_t var_index = 0; var_index < idx_size; ++var_index) {
-      if (fzs.random()(99U) <= fzs.freezePercent()) {
-        freeze(fzs, *last, var_index);
-      }
+  const size_t iv_idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
+
+  for (size_t var_index = 0; var_index < iv_idx_size; ++var_index) {
+    if (fzs.random()(99U) <= fzs.freezePercent()) {
+      freezeInt(fzs, *last, var_index);
     }
-    return false;
+  }
+
+  const size_t bv_idx_size = fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size();
+  for (size_t var_index = 0; var_index < bv_idx_size; ++var_index) {
+    if (fzs.random()(99U) <= fzs.freezePercent()) {
+      freezeBool(fzs, *last, var_index);
+    }
+  }
+
+  return false;
 }
 
 bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size) {
-    if (!shouldPerformLns(fzs, mi)) {
-      return true;
-    }
-    const auto last = getLast(fzs, mi);
-    if (last == nullptr) {
-      return true;
-    }
-    updateLastBest(fzs, mi, *last);
-    // const FlatZincSpace& last = static_cast<const FlatZincSpace&>(*mi.last());
-    // Set up the variables to make sure that pglns stops.
-    // double test = 0;
-    // double stop = test * 0.80;
-    size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
-    size_t limit = floor(double(idx_size) * (double(fzs.freezePercent()) / 100.0));
-    size_t vars_frozen = 0;
-    // Set up the variables for the propagation guided LNS.
-    std::deque<PGLNSInfo> pglns_info;
-    vector<int> domainSizes(idx_size);
-    vector<int> indices(idx_size);
-    std::iota(indices.begin(), indices.end(), 0);
+  if (!shouldPerformLns(fzs, mi)) {
+    return true;
+  }
+  const auto last = getLast(fzs, mi);
+  if (last == nullptr) {
+    return true;
+  }
+  updateLastBest(fzs, mi, *last);
+  const auto lnsVars = createLnsVars(fzs);
 
-    int index;
-    PGLNSInfo pglns_info_elem;
-    while (vars_frozen < limit || (indices.size() + vars_frozen < idx_size)){
-      if (indices.empty()) break;
-      if (pglns_info.empty()){
-        index = indices[fzs.random()(static_cast<int>(indices.size()))];
-        std::swap(indices[index], indices.back());
-        indices.pop_back();
-        if (lnsVar(fzs, index).assigned()) {
-          continue;
-        }
-      }
-      else {
-        pglns_info_elem = pglns_info.front();
-        index = indices[pglns_info_elem.ivIndex];
-        std::swap(indices[pglns_info_elem.ivIndex], indices.back());
-        indices.pop_back();
-        pglns_info.pop_front();
-      }
-      if (indices.empty()) break;
-      // Get the domain size before the propagation
-      for (size_t i = 0; i < indices.size(); i++) {
-        if (index != indices[i] && !lnsVar(fzs, indices[i]).assigned()) {
-          domainSizes[indices[i]] = lnsVar(fzs, indices[i]).size();
-        }
-      }
-      // Force value accordinly, and propagate.
-      freeze(fzs, *last, index);
-      vars_frozen++;
-      fzs.status();
-      
-      // Add the variables that were propagated to pglns_info.
-      for (size_t i = 0; i < indices.size(); ++i) {
-        int diff = domainSizes[indices[i]] - lnsVar(fzs, indices[i]).size();
-        if (diff > 0 && pglns_info.size() < queue_size && index != indices[i] && lnsVar(fzs, indices[i]).assigned()) {
-          pglns_info.push_back({i, diff});
-        }
-      }
-      
-      // Sort the variables and indexes in non_fzn_introduced_vars according to the difference in domain size in pglns_info.
-      std::sort(pglns_info.begin(), pglns_info.end(), [](const PGLNSInfo& a, const PGLNSInfo& b) {
-        return a.domainDiff > b.domainDiff;
-      });
+  size_t limit = floor(double(lnsVars.size()) * (double(fzs.freezePercent()) / 100.0));
+  size_t vars_frozen = 0;
+  // Set up the variables for the propagation guided LNS.
+  std::deque<unsigned int> queue;
+  std::vector<bool> inQueue(lnsVars.size(), false);
+  vector<int> domainDifferences(lnsVars.size());
+  vector<unsigned int> indices(lnsVars.size());
+  std::iota(indices.begin(), indices.end(), 0);
+
+
+
+  while (!indices.empty() && (vars_frozen < limit || (indices.size() + vars_frozen < lnsVars.size()))) {
+    const unsigned int index_pos = queue.empty()
+      ? fzs.random()(static_cast<int>(indices.size()))
+      : queue.front();
+    const unsigned int index = indices[index_pos];
+    std::swap(indices[index_pos], indices.back());
+    indices.pop_back();
+    if (!queue.empty()) {
+      inQueue[queue.front()] = false;
+      queue.pop_front();
     }
-    return false;
+    if (isAssigned(fzs, lnsVars[index])) {
+      continue;
+    }
+    if (indices.empty()) {
+      break;
+    }
+    // Get the domain size before the propagation
+    for (unsigned int lnsIndex : indices) {
+      assert(index != lnsIndex);
+      domainDifferences[lnsIndex] = static_cast<int>(domainSize(fzs, lnsVars[lnsIndex]));
+    }
+    // Force value accordingly, and propagate.
+    freeze(fzs, *last, lnsVars[index]);
+    ++vars_frozen;
+    fzs.status();
+
+    // Add the variables that were propagated to pglns_info.
+    for (unsigned int lnsIndex : indices) {
+      domainDifferences[lnsIndex] -= static_cast<int>(domainSize(fzs, lnsVars[lnsIndex]));
+      assert(index != lnsIndex);
+      if (!inQueue[lnsIndex] && domainDifferences[lnsIndex] > 0 && queue.size() < queue_size && !isAssigned(fzs, lnsVars[lnsIndex])) {
+        queue.push_back(lnsIndex);
+        inQueue[lnsIndex] = true;
+      }
+    }
+
+    // Sort the variables and indices in non_fzn_introduced_vars according to the difference in domain size in pglns_info.
+    std::sort(queue.begin(), queue.end(), [&domainDifferences](const unsigned int& i1, const unsigned int& i2) {
+      return domainDifferences[i1] > domainDifferences[i2];
+    });
+  }
+  return false;
 }
 
 bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, unsigned int queue_size) {
@@ -212,40 +296,40 @@ bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo
         index = indices[fzs.random()(static_cast<int>(indices.size()))];
         std::swap(indices[index], indices.back());
         indices.pop_back();
-        if (lnsVar(fzs, index).assigned()) {
+        if (lnsIntVar(fzs, index).assigned()) {
           continue;
         }
       }
       else{
         pglns_info_elem = pglns_info.front();
-        index = indices[pglns_info_elem.ivIndex];
-        std::swap(indices[pglns_info_elem.ivIndex], indices.back());
+        index = indices[pglns_info_elem.lnsIndex];
+        std::swap(indices[pglns_info_elem.lnsIndex], indices.back());
         indices.pop_back();
         pglns_info.pop_front();
       }
       if (indices.empty()) break;
       // Get the domain size before the propagation
       for (unsigned long int i = 0; i < indices.size(); i++) {
-        if (index != indices[i] && lnsVar(fzs, indices[i]).assigned()) {
-          domainSizes[indices[i]] = lnsVar(fzs, indices[i]).size();
+        if (index != indices[i] && lnsIntVar(fzs, indices[i]).assigned()) {
+          domainSizes[indices[i]] = lnsIntVar(fzs, indices[i]).size();
         }
       }
       // Force value accordinly, and propagate.
-      freeze(fzs, *last, index);
+      freezeInt(fzs, *last, index);
       vars_frozen++;
       fzs.status();
       
       // Add the variables that were propagated to pglns_info.
       for (unsigned long int i = 0; i < indices.size(); i++) {
-        if (index != indices[i] && !lnsVar(fzs, indices[i]).assigned()) {
-          int diff = domainSizes[indices[i]] - lnsVar(fzs, indices[i]).size();
+        if (index != indices[i] && !lnsIntVar(fzs, indices[i]).assigned()) {
+          int diff = domainSizes[indices[i]] - lnsIntVar(fzs, indices[i]).size();
           domainSizes[indices[i]] = diff;
           avg_propagation += diff;
         }
       }
       // avg_propagation /= indices.size();
       for (unsigned long int i = 0; i < indices.size(); i++){
-        if (domainSizes[indices[i]] > 0 && pglns_info.size() < queue_size && index != indices[i] && lnsVar(fzs, indices[i]).assigned()){
+        if (domainSizes[indices[i]] > 0 && pglns_info.size() < queue_size && index != indices[i] && lnsIntVar(fzs, indices[i]).assigned()){
           pglns_info.push_back({i, domainSizes[indices[i]]});
         }
       }
@@ -271,8 +355,8 @@ bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
     size_t idx_size = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.default_iv_obj_relax_indices->size();
     for (size_t i = 0; i < idx_size; i++) {
       if (fzs.random()(99U) <= fzs.freezePercent()) {
-        if (!lnsVar(fzs, i, fzs.default_iv_obj_relax_indices).assigned()){
-          freeze(fzs, *last, i, fzs.default_iv_obj_relax_indices);
+        if (!lnsIntVar(fzs, i, fzs.default_iv_obj_relax_indices).assigned()){
+          freezeInt(fzs, *last, i, fzs.default_iv_obj_relax_indices);
         }
       }
     }
@@ -329,7 +413,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
         const int oldBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
         // The variables stored in vars.intVar are those variables found in iv_lns_default.
         const int var_index = indices[i];
-        freeze(*fzs_clone, *last, var_index);
+        freezeInt(*fzs_clone, *last, var_index);
         fzs_clone->status();
         
         const int newBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
@@ -370,7 +454,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   double r_local = fzs.ciglns_info->r;
   size_t numRelaxed = 0;
 
-  for (size_t numRelaxed = 0; indices.empty() || numRelaxed < numVarsToRelax; ++numRelaxed) {
+  for (numRelaxed = 0; indices.empty() || numRelaxed < numVarsToRelax; ++numRelaxed) {
     double v = r_local <= 0
              ? 0
              : fzs.random()(static_cast<int>(floor(r_local)));
@@ -397,7 +481,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   
   // freeze the chosen variables.
   for (const int var_index : indices) {
-    freeze(fzs, *last, var_index);
+    freezeInt(fzs, *last, var_index);
   }
   // Only return false if variables were relaxed.
   return numRelaxed > 0;
@@ -459,7 +543,7 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
     for (size_t var_index = 0; var_index < idx_size; ++var_index){
       FlatZincSpace* fzs_clone = static_cast<FlatZinc::FlatZincSpace*>(fzs.clone());
 
-      freeze(*fzs_clone, *last, var_index);
+      freezeInt(*fzs_clone, *last, var_index);
       fzs_clone->status();
       
       const int newBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
@@ -489,7 +573,7 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
   }
   // freeze all non-relaxed variables:
   for (const int index : indices) {
-    freeze(fzs, *last, index);
+    freezeInt(fzs, *last, index);
   }
 
   return false;
