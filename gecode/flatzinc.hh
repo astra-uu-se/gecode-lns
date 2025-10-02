@@ -352,7 +352,7 @@ namespace Gecode { namespace FlatZinc {
       "7 = prioritized branching bab asset; "
       "8 = branch and bound opposite branching asset; "
       "9 = shaving asset; "
-      "-1 = run multiple assets (defined by -assets flag)", 0),
+      "-1 = run multiple assets (defined by -assets flag)", -1),
 
       _mode("mode","how to execute script",Gecode::SM_SOLUTION),
       _stat("s","emit statistics"),
@@ -546,7 +546,7 @@ namespace Gecode { namespace FlatZinc {
     Rnd _random;
 
     /// Annotations on the solve item
-    std::shared_ptr<AST::Array> _solveAnnotations;
+    AST::Array* _solveAnnotations;
 
     LNSType _lnsType;
     LNSAnnType _lnsAnnType;
@@ -572,6 +572,11 @@ namespace Gecode { namespace FlatZinc {
     branchWithPlugin(AST::Node* ann);
 
     std::optional<bool> updateOnRestart(const MetaInfo&);
+
+    void populateCostImpactData();
+    void populateObjRelData();
+    void populateStaticVariableRelationData(const std::vector<ConExpr*>&);
+
   public:
     /// The integer variables
     Gecode::IntVarArray iv;
@@ -596,10 +601,10 @@ namespace Gecode { namespace FlatZinc {
       return *_lns;
     }
     [[nodiscard]] bool hasLnsVars() const {
-      return (0 < iv_lns.size() && iv_lns.size() < iv.size()) ||
-        (0 < bv_lns.size() && bv_lns.size() < bv.size()) ||
-          (0 < fv_lns.size() && fv_lns.size() < fv.size()) ||
-            (0 < sv_lns.size() && sv_lns.size() < sv.size());
+      return bv_lns.size() > 0 ||
+        iv_lns.size() > 0 ||
+          fv_lns.size() > 0 ||
+            sv_lns.size() > 0;
     }
 
 
@@ -617,8 +622,8 @@ namespace Gecode { namespace FlatZinc {
     std::shared_ptr<unsigned long> last_best_restart;
     std::shared_ptr<int> last_best_objective;
 
-    std::shared_ptr<std::vector<std::vector<double>>> variable_relations;
-    std::shared_ptr<std::vector<int>> variable_impacts;
+    std::shared_ptr<std::array<std::vector<std::array<std::vector<double>,4>>,4>> variable_relations;
+    std::shared_ptr<std::array<std::vector<int>,4>> variable_impacts;
     std::shared_ptr<CIGInfo> ciglns_info;
 
 
@@ -805,21 +810,21 @@ namespace Gecode { namespace FlatZinc {
      * The seed for random branchers is given by the \a seed parameter.
      *
      */
-    void createBranchers(Printer& p, const std::shared_ptr<AST::Node>& ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err = std::cerr);
+    void createBranchers(Printer& p, AST::Node* ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err = std::cerr);
 
     void deletePBSArrays();
     void initIncumbentSolution(std::shared_ptr<IncumbentSolution>& solution);
     void populateLnsVars(const std::vector<ConExpr*>&);
     [[nodiscard]] int compareObjectiveValue(const FlatZincSpace& other) const;
-    [[nodiscard]] bool hasInitialIncumbentSolution() const;
+    [[nodiscard]] static bool hasInitialIncumbentSolution(AST::Array* solveAnnotations);
     void applyInitialIncumbentSolution();
-    void storeConstraintInformation();
+    void storeConstraintInformation(const std::vector<ConExpr*>& originalConstraints);
 
     /// Return the solve item annotations
-    std::shared_ptr<AST::Array> solveAnnotations(void) const;
+    [[nodiscard]] AST::Array* solveAnnotations(void) const;
 
     // Set the solve item annotations for a space.
-    void setSolveAnnotations(std::shared_ptr<AST::Array>& solveAnnotations);
+    void setSolveAnnotations(AST::Array* solveAnnotations);
 
     /// Information for printing branches
     BranchInformation branchInfo;

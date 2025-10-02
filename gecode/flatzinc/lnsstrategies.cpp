@@ -162,6 +162,35 @@ bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace&
   return false;
 }
 
+int typeToInt(VAR_TYPE t) {
+  switch (t) {
+    case VAR_BOOL:
+      return 0;
+    case VAR_INT:
+      return 1;
+    case VAR_FLOAT:
+      return 2;
+    case VAR_SET_OF_VAR:
+      return 3;
+  }
+  return -1;
+}
+
+VAR_TYPE intToType(int t) {
+  switch (t) {
+    case 0:
+      return VAR_BOOL;
+    case 1:
+      return VAR_INT;
+    case 2:
+      return VAR_FLOAT;
+    case 3:
+      return VAR_SET_OF_VAR;
+    default:
+      return VAR_INT;
+  }
+}
+
 bool LNSstrategies::random(FlatZincSpace& fzs, const MetaInfo& mi) {
   if (!shouldPerformLns(fzs, mi)) {
     return true;
@@ -320,13 +349,10 @@ bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
   }
   updateLastBest(fzs, mi, *last);
 
-  const auto lnsVars = createLnsVars(fzs);
 
-  for (int i = 0; i < static_cast<int>(fzs.default_iv_obj_relax_indices->size()); i++) {
+  for (const int intVarIndex : *(fzs.default_iv_obj_relax_indices)) {
     if (fzs.random()(99U) <= fzs.freezePercent()) {
-      if (!lnsIntVar(fzs, i, fzs.default_iv_obj_relax_indices).assigned()){
-        freezeInt(fzs, *last, i, fzs.default_iv_obj_relax_indices);
-      }
+      rel(fzs, fzs.iv[intVarIndex], IRT_EQ, last->iv[intVarIndex].val());
     }
   }
   return false;
@@ -426,7 +452,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   double r_local = fzs.ciglns_info->r;
   size_t numRelaxed = 0;
 
-  for (numRelaxed = 0; indices.empty() || numRelaxed < numVarsToRelax; ++numRelaxed) {
+  for (numRelaxed = 0; !indices.empty() && numRelaxed < numVarsToRelax; ++numRelaxed) {
     double v = r_local <= 0
              ? 0
              : fzs.random()(static_cast<int>(floor(r_local)));
@@ -453,20 +479,21 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   
   // freeze the chosen variables.
   for (const int lnsIndex : indices) {
-    freezeInt(fzs, *last, lnsIndex);
+    freeze(fzs, *last, lnsVars[lnsIndex]);
   }
   // Only return false if variables were relaxed.
   return numRelaxed > 0;
 }
 
-int selectRandomBestIndex(FlatZincSpace& fzs, std::vector<int>& indices, int n){
+int selectRandomBestIndex(FlatZincSpace& fzs, std::vector<std::pair<VAR_TYPE, int>>& lnsVars, int n){
 
   int best_impact = -1;
   int best_index = -1;
   
-  for (int i = 0; i < std::min<int>(n, static_cast<int>(indices.size())); ++i) {
-    std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
-    const int impact = (*fzs.variable_impacts)[indices[i]];
+  for (int i = 0; i < std::min<int>(n, static_cast<int>(lnsVars.size())); ++i) {
+    std::swap(lnsVars[i], lnsVars[randInInterval(i, static_cast<int>(lnsVars.size()), fzs.random())]);
+    const int type = typeToInt(lnsVars[i].first);
+    const int impact = fzs.variable_impacts->at(type).at(lnsVars[i].second);
     if (best_index < 0 || best_impact < impact) {
       best_impact = impact;
       best_index = i;
@@ -476,14 +503,18 @@ int selectRandomBestIndex(FlatZincSpace& fzs, std::vector<int>& indices, int n){
   return best_index;
 }
 
-int selectRandomRelatedIndex(FlatZincSpace& fzs, int lnsIndex, std::vector<int>& indices, int n){
+int selectRandomRelatedIndex(FlatZincSpace& fzs, std::vector<std::pair<VAR_TYPE, int>>& lnsVars, const std::pair<VAR_TYPE, int>& bestLnsVar, int n){
   // Given indices to relations, select variable with the best relations.
   int best_index = -1;
   double best_relation = -1;
-  for (int i = 0; i < std::min<int>(n, static_cast<int>(indices.size())); i++){
-    std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
-    if (best_index < 0 || (*fzs.variable_relations)[lnsIndex][indices[i]] > best_relation){
-      best_relation = (*fzs.variable_relations)[lnsIndex][indices[i]];
+  const int type1 = bestLnsVar.first;
+  const int index1 = bestLnsVar.second;
+  for (int i = 0; i < std::min<int>(n, static_cast<int>(lnsVars.size())); i++){
+    std::swap(lnsVars[i], lnsVars[randInInterval(i, static_cast<int>(lnsVars.size()), fzs.random())]);
+    const int type2 = typeToInt(lnsVars[i].first);
+    const int index2 = lnsVars[i].second;
+    if (best_index < 0 || fzs.variable_relations->at(type1).at(index1).at(type2).at(index2) > best_relation) {
+      best_relation = fzs.variable_relations->at(type1).at(index1).at(type2).at(index2);
       best_index = i;
     }
   }
@@ -501,50 +532,59 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
   }
   const bool foundBetter = updateLastBest(fzs, mi, *last);
 
-  const auto lnsVars = createLnsVars(fzs);
+  auto lnsVars = createLnsVars(fzs);
+  const std::array<int, 4> lnsSizes{
+  fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size(),
+  fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size(),
+  fzs.hasLnsVars() ? fzs.fv_lns.size() : fzs.fv.size(),
+  fzs.hasLnsVars() ? fzs.sv_lns.size() : fzs.sv.size()};
 
-  if (fzs.variable_impacts == nullptr || fzs.variable_impacts->empty() || foundBetter) {
-    
+  if (fzs.variable_impacts == nullptr || foundBetter ||
+    fzs.variable_impacts->at(0).size() < lnsSizes[0] ||
+    fzs.variable_impacts->at(1).size() < lnsSizes[1] ||
+    fzs.variable_impacts->at(2).size() < lnsSizes[2] ||
+    fzs.variable_impacts->at(3).size() < lnsSizes[3]) {
+
     if (fzs.variable_impacts == nullptr) {
-      fzs.variable_impacts = std::make_shared<std::vector<int>>();
+      fzs.variable_impacts = std::make_shared<std::array<std::vector<int>, 4>>();
     }
-    fzs.variable_impacts->resize(lnsVars.size());
-    const int oldBound = getBound(last->iv[fzs.optVar()], fzs.method() == FlatZincSpace::MIN);
-    
-    for (int lnsIndex = 0; lnsIndex < static_cast<int>(lnsVars.size()); ++lnsIndex){
-      auto* fzs_clone = dynamic_cast<FlatZinc::FlatZincSpace*>(fzs.clone());
 
-      freezeInt(*fzs_clone, *last, lnsIndex);
+    for (int t = 0; t < lnsSizes.size(); ++t) {
+      fzs.variable_impacts->at(t).resize(lnsSizes[t]);
+    }
+
+    const int oldBound = getBound(last->iv[fzs.optVar()], fzs.method() == FlatZincSpace::MIN);
+    for (const auto& lnsVar : lnsVars) {
+      auto* fzs_clone = dynamic_cast<FlatZincSpace*>(fzs.clone());
+
+      freeze(*fzs_clone, *last, lnsVar);
       fzs_clone->status();
 
       const int newBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
       const int impact = std::abs(newBound - oldBound);
-      (*fzs.variable_impacts)[lnsIndex] = impact;
+      fzs.variable_impacts->at(typeToInt(lnsVar.first)).at(lnsVar.second) = impact;
       delete fzs_clone;
     }
   }
-  
-  std::vector<int> indices(lnsVars.size());
-  std::iota(indices.begin(), indices.end(), 0);
   
   const double relaxFactor = static_cast<double>(100 - fzs.freezePercent()) / 100.0;
   const size_t numVarsToRelax = std::max<size_t>(1, static_cast<size_t>(ceil(relaxFactor * static_cast<double>(lnsVars.size()))));
   const int n = 10 - static_cast<int>(round(5.0 * relaxFactor));
 
-  int lnsIndex = -1;
-  for (int i = 0; i < numVarsToRelax && !indices.empty(); ++i) {
+  std::pair<VAR_TYPE, int> bestLnsVar = {VAR_BOOL, -1};
+  for (int i = 0; i < numVarsToRelax && !lnsVars.empty(); ++i) {
     // Select variable to relax:
     const int best_index = i % 2 == 0
-                             ? selectRandomBestIndex(fzs, indices, n)
-                             : selectRandomRelatedIndex(fzs, lnsIndex, indices, n);
-    lnsIndex = indices[best_index];
+                             ? selectRandomBestIndex(fzs, lnsVars, n)
+                             : selectRandomRelatedIndex(fzs, lnsVars, bestLnsVar, n);
+    bestLnsVar = lnsVars[best_index];
     // remove best_index from indices
-    indices[best_index] = indices.back();
-    indices.pop_back();
+    lnsVars[best_index] = lnsVars.back();
+    lnsVars.pop_back();
   }
   // freeze all non-relaxed variables:
-  for (const int index : indices) {
-    freezeInt(fzs, *last, index);
+  for (const auto& lnsVar : lnsVars) {
+    freeze(fzs, *last, lnsVar);
   }
 
   return false;

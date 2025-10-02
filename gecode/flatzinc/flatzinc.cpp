@@ -862,6 +862,7 @@ namespace Gecode { namespace FlatZinc {
         }
         bv_aux = BoolVarArray(*this, bva);
       }
+      bv_lns.update(*this, f.bv_lns);
 
 #ifdef GECODE_HAS_SET_VARS
       sv.update(*this, f.sv);
@@ -876,6 +877,7 @@ namespace Gecode { namespace FlatZinc {
         }
         sv_aux = SetVarArray(*this, sva);
       }
+      sv_lns.update(*this, f.sv_lns);
 #endif
 #ifdef GECODE_HAS_FLOAT_VARS
       fv.update(*this, f.fv);
@@ -890,6 +892,7 @@ namespace Gecode { namespace FlatZinc {
         }
         fv_aux = FloatVarArray(*this, fva);
       }
+      fv_lns.update(*this, f.fv_lns);
 #endif
     }
 
@@ -946,7 +949,6 @@ namespace Gecode { namespace FlatZinc {
     auto c = dynamic_cast<FlatZincSpace*>(clone());
     // fzs = static_cast<FlatZincSpace*>(fg->copy());
     // Set the solve annotations for the asset, as it does not follow from the clone.
-    c->_solveAnnotations = _solveAnnotations;
     // Set the shared current best solutions between assets for each asset.
     c->_incumbentSolution = incumbentSolution;
     // Make space know if optimum has been found.
@@ -1149,7 +1151,11 @@ namespace Gecode { namespace FlatZinc {
       default_iv_obj_relax_indices = nullptr;
   }
 
-  void FlatZincSpace::storeConstraintInformation(){
+  void FlatZincSpace::populateCostImpactData() {
+    ciglns_info = std::make_shared<CIGInfo>(0);
+  }
+
+  void FlatZincSpace::populateObjRelData() {
     default_iv_obj_relax_indices = nullptr;
     for (ConExpr* ce : constraints){
       // Ensure that the constraint is of type int_lin_eq and is defined var in compiled fzn file for the use of Objective Relaxation LNS.
@@ -1163,123 +1169,276 @@ namespace Gecode { namespace FlatZinc {
         continue;
       }
 
-      
+
       AST::Array* coef = ce->args->a[0]->getArray();
       AST::Array* vars = ce->args->a[1]->getArray();
 
-      // Two different cases: All coefficients are similar or some coefficients are larger than other.
+      // Two different cases: All coefficients are similar or some coefficients are larger than others.
       // Loop starts at 1 since the first entry is the objective value itself, and freezing that variable breaks the point of the search.
-      const double mean = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double acc, AST::Node* b) { return acc + std::abs(b->getInt()); }) / (coef->a.size()-1);
+      const double mean = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double acc, AST::Node* b) { return acc + std::abs(b->getInt()); }) / static_cast<double>(coef->a.size()-1);
       const double sq_sum = std::accumulate(coef->a.begin()+1, coef->a.end(), 0.0, [](double sum, AST::Node* b) { int val = b->getInt(); return sum + val * val; });
-      const double stdev = std::sqrt((sq_sum / (coef->a.size()-1)) - (mean * mean));
+      const double stdev = std::sqrt((sq_sum / static_cast<double>(coef->a.size()-1)) - (mean * mean));
 
       // Case 1: coefficients are similar (a standard deviation smaller than 1)
       // Case 2: Some coefficients are larger than other, keep those non-fixed and make those with smaller mean freezeable, to relax the objective.
       default_iv_obj_relax_indices = std::make_shared<std::vector<int>>();
-      for (size_t i = 0; i < vars->a.size(); i++){
+      for (size_t i = 0; i < vars->a.size(); i++) {
         if (vars->a[i]->getIntVar() != _optVar && vars->a[i]->isIntVar() && !iv[vars->a[i]->getIntVar()].assigned() && (stdev < 1 || coef->a[i]->getInt() < mean)) {
           default_iv_obj_relax_indices->emplace_back(vars->a[i]->getIntVar());
         }
       }
     }
+  }
 
-    std::vector<std::unordered_set<int>> constraint_input_vars;
-    for (ConExpr* ce : constraints){
+  void FlatZincSpace::populateStaticVariableRelationData(const std::vector<ConExpr*>& originalConstraints) {
+    std::vector<std::array<std::unordered_set<int>,4>> constraint_input_vars;
+    auto addConstraintInput = [&](AST::Node *node) {
+      if (node->isBoolVar()) {
+        if (!bv[node->getBoolVar()].assigned()) {
+          constraint_input_vars.back()[0].emplace(node->getBoolVar());
+        }
+      } else if (node->isIntVar()) {
+        if (!iv[node->getIntVar()].assigned()) {
+          constraint_input_vars.back()[1].emplace(node->getIntVar());
+        }
+      } else if (node->isFloatVar()) {
+        if (!fv[node->getFloatVar()].assigned()) {
+          constraint_input_vars.back()[2].emplace(node->getFloatVar());
+        }
+      } else if (node->isSetVar()) {
+        if (!fv[node->getFloatVar()].assigned()) {
+          constraint_input_vars.back()[3].emplace(node->getSetVar());
+        }
+      }
+    };
+    for (const ConExpr* ce : originalConstraints){
       constraint_input_vars.emplace_back();
       for (size_t i = 0; i < ce->args->a.size(); ++i) {
         if (ce->args->a[0]->isArray()) {
           auto arr = ce->args->a[0]->getArray();
-          for (size_t j = 0; j < arr->a.size(); ++j) {
-            if (arr->a[j]->isIntVar() && iv[arr->a[j]->getIntVar()].width() > 1) {
-              constraint_input_vars.back().emplace(arr->a[j]->getIntVar());
-            }
+          for (const auto & node : arr->a) {
+            addConstraintInput(node);
           }
-        } else if (ce->args->a[i]->isIntVar() && iv[ce->args->a[i]->getIntVar()].width() > 1) {
-          constraint_input_vars.back().emplace(ce->args->a[i]->getIntVar());
+        } else {
+          addConstraintInput(ce->args->a[0]);
         }
       }
     }
 
     // For each variable present, map the iv index to the index that will be used in non_fzn_introduced_vars
+    std::unordered_map<BoolVar*, int> bv_lns_indices;
+    bv_lns_indices.reserve(hasLnsVars() ? bv_lns.size() : 0);
     std::unordered_map<IntVar*, int> iv_lns_indices;
     iv_lns_indices.reserve(hasLnsVars() ? iv_lns.size() : 0);
+    std::unordered_map<FloatVar*, int> fv_lns_indices;
+    fv_lns_indices.reserve(hasLnsVars() ? fv_lns.size() : 0);
+    std::unordered_map<SetVar*, int> sv_lns_indices;
+    sv_lns_indices.reserve(hasLnsVars() ? sv_lns.size() : 0);
+
     if (hasLnsVars()) {
+      for (int i = 0;  i < bv_lns.size(); ++i) {
+        bv_lns_indices.emplace(&bv_lns[i], i);
+      }
       for (int i = 0;  i < iv_lns.size(); ++i) {
         iv_lns_indices.emplace(&iv_lns[i], i);
+      }
+      for (int i = 0;  i < fv_lns.size(); ++i) {
+        fv_lns_indices.emplace(&fv_lns[i], i);
+      }
+      for (int i = 0;  i < sv_lns.size(); ++i) {
+        sv_lns_indices.emplace(&sv_lns[i], i);
       }
     }
 
     std::vector<int> num_vars(constraint_input_vars.size(), 0);
     for (size_t i = 0; i < constraint_input_vars.size(); i++) {
-      for (const int var_index : constraint_input_vars[i]) {
-        if (!hasLnsVars() || iv_lns_indices.find(&iv[var_index]) != iv_lns_indices.end()) {
+      for (const int varIndex : constraint_input_vars[i][0]) {
+        if (!hasLnsVars() || bv_lns_indices.find(&bv[varIndex]) != bv_lns_indices.end()) {
+          ++num_vars[i];
+        }
+      }
+      for (const int varIndex : constraint_input_vars[i][1]) {
+        if (!hasLnsVars() || iv_lns_indices.find(&iv[varIndex]) != iv_lns_indices.end()) {
+          ++num_vars[i];
+        }
+      }
+      for (const int varIndex : constraint_input_vars[i][2]) {
+        if (!hasLnsVars() || fv_lns_indices.find(&fv[varIndex]) != fv_lns_indices.end()) {
+          ++num_vars[i];
+        }
+      }
+      for (const int varIndex : constraint_input_vars[i][3]) {
+        if (!hasLnsVars() || sv_lns_indices.find(&sv[varIndex]) != sv_lns_indices.end()) {
           ++num_vars[i];
         }
       }
     }
 
-    size_t size = hasLnsVars() ? iv_lns.size() : iv.size();
-    std::vector<int> num_constraints(size, 0);
-    for (size_t i = 0; i < constraint_input_vars.size(); ++i) {
-      if (constraint_input_vars[i].size() <= 1) {
+    std::array<int, 4> lnsVarSizes{
+      hasLnsVars() ? bv_lns.size() : bv.size(),
+      hasLnsVars() ? iv_lns.size() : iv.size(),
+      hasLnsVars() ? fv_lns.size() : fv.size(),
+      hasLnsVars() ? sv_lns.size() : sv.size()
+    };
+
+    std::array<std::vector<int>, 4> numConstraints{
+      std::vector<int>(lnsVarSizes[0], 0),
+      std::vector<int>(lnsVarSizes[1], 0),
+      std::vector<int>(lnsVarSizes[2], 0),
+      std::vector<int>(lnsVarSizes[3], 0)
+    };
+
+    for (const auto & inputData : constraint_input_vars) {
+      if (inputData[0].size() + inputData[1].size() + inputData[2].size() + inputData[3].size() <= 1) {
         continue;
       }
-      for (const int var_index : constraint_input_vars[i]) {
+      for (const int var_index : inputData[0]) {
+        if (hasLnsVars()) {
+          auto* var = &bv[var_index];
+          if (bv_lns_indices.find(var) != bv_lns_indices.end()) {
+            ++numConstraints[0].at(bv_lns_indices[var]);
+          }
+        } else {
+          ++numConstraints[0].at(var_index);
+        }
+      }
+      for (const int var_index : inputData[1]) {
         if (hasLnsVars()) {
           auto* var = &iv[var_index];
           if (iv_lns_indices.find(var) != iv_lns_indices.end()) {
-            ++num_constraints.at(iv_lns_indices[var]);
+            ++numConstraints[1].at(iv_lns_indices[var]);
           }
         } else {
-          ++num_constraints.at(var_index);
+          ++numConstraints[1].at(var_index);
+        }
+      }
+      for (const int var_index : inputData[2]) {
+        if (hasLnsVars()) {
+          auto* var = &fv[var_index];
+          if (fv_lns_indices.find(var) != fv_lns_indices.end()) {
+            ++numConstraints[2].at(fv_lns_indices[var]);
+          }
+        } else {
+          ++numConstraints[2].at(var_index);
+        }
+      }
+      for (const int var_index : inputData[3]) {
+        if (hasLnsVars()) {
+          auto* var = &sv[var_index];
+          if (sv_lns_indices.find(var) != sv_lns_indices.end()) {
+            ++numConstraints[3].at(sv_lns_indices[var]);
+          }
+        } else {
+          ++numConstraints[3].at(var_index);
         }
       }
     }
 
-    
-    variable_relations = std::make_shared<std::vector<std::vector<double>>>(size, std::vector<double>(size));
+    auto getIndex = [&](int t, int v) {
+      if (!hasLnsVars()) {
+        return v;
+      }
+      if (t == 0) {
+        auto* var = &bv[v];
+        if (bv_lns_indices.find(var) == bv_lns_indices.end()) {
+          return -1;
+        }
+        return bv_lns_indices[var];
+      }
+      if (t == 1) {
+        auto* var = &iv[v];
+        if (iv_lns_indices.find(var) == iv_lns_indices.end()) {
+          return -1;
+        }
+        return iv_lns_indices[var];
+      }
+      if (t == 2) {
+        auto* var = &fv[v];
+        if (fv_lns_indices.find(var) == fv_lns_indices.end()) {
+          return -1;
+        }
+        return fv_lns_indices[var];
+      }
+      assert(t == 3);
+      auto* var = &sv[v];
+      if (sv_lns_indices.find(var) == sv_lns_indices.end()) {
+        return -1;
+      }
+      return sv_lns_indices[var];
+    };
+    variable_relations = std::make_shared<std::array<std::vector<std::array<std::vector<double>,4>>,4>>();
+    for (int t1 = 0; t1 < variable_relations->size(); ++t1) {
+      variable_relations->at(t1).resize(lnsVarSizes[t1]);
+      for (int v1 = 0; v1 < lnsVarSizes[t1]; ++v1) {
+        for (int t2 = 0; t2 < variable_relations->size(); ++t2) {
+          variable_relations->at(t1).at(v1).at(t2).resize(lnsVarSizes[t2], 0.0);
+        }
+      }
+    }
+    auto addRelation = [&](int i, int t1, int v1, int t2, int v2) {
+      const int index1 = getIndex(t1, v1);
+      const int index2 = getIndex(t2, v2);
+      if (index1 >= 0 && index2 >= 0) {
+        variable_relations->at(t1).at(index1).at(t2).at(index2) += 1.0 / num_vars[i];
+        variable_relations->at(t2).at(index2).at(t1).at(index1) += 1.0 / num_vars[i];
+      }
+    };
     // The variable_relations matrix is used for Static Variable Dependency LNS asset
     // and contain the relations between the variables given the weights defined for each constraint.
-    for (size_t i = 0; i < constraint_input_vars.size(); i++) {
-      for (auto iter1 = constraint_input_vars[i].begin(); iter1 != constraint_input_vars[i].end(); ++iter1) {
-        auto iter2 = iter1;
-        for (++iter2; iter2 != constraint_input_vars[i].end(); ++iter2){
-          if (hasLnsVars()) {
-            auto* var1 = &iv[*iter1];
-            auto* var2 = &iv[*iter2];
-            if (iv_lns_indices.find(var1) != iv_lns_indices.end() && iv_lns_indices.find(var2) != iv_lns_indices.end()) {
-              const int iv_lns_index1 = iv_lns_indices[var1];
-              const int iv_lns_index2 = iv_lns_indices[var2];
-              (*variable_relations).at(iv_lns_index1).at(iv_lns_index2) += 1.0 / num_vars[i];
-              (*variable_relations).at(iv_lns_index2).at(iv_lns_index1) += 1.0 / num_vars[i];  
+    for (int i = 0; i < static_cast<int>(constraint_input_vars.size()); i++) {
+      for (int varType1 = 0; varType1 < 4; ++varType1) {
+        for (auto iter1 = constraint_input_vars[i][varType1].begin(); iter1 != constraint_input_vars[i][varType1].end(); ++iter1) {
+          auto iter2 = iter1;
+          for (++iter2; iter2 != constraint_input_vars[i][varType1].end(); ++iter2){
+            addRelation(i, varType1, *iter1, varType1, *iter2);
+          }
+          for (int varType2 = varType1 + 1; varType2 < 4; ++varType2) {
+            for (const int v2 : constraint_input_vars[i][varType2]) {
+              addRelation(i, varType1, *iter1, varType2, v2);
             }
-          } else {
-            (*variable_relations).at(*iter1).at(*iter2) += 1.0 / num_vars[i];
-            (*variable_relations).at(*iter2).at(*iter1) += 1.0 / num_vars[i];
           }
         }
       }
     }
-    for (size_t i = 0; i < size; ++i) {
-      for (size_t j = 0; j < size; ++j) {
-        (*variable_relations).at(i).at(j) *= (1.0 / num_constraints[i]);
+    for (int t1 = 0; t1 < 4; ++t1) {
+      for (int v1 = 0; v1 < variable_relations->at(t1).size(); ++v1) {
+        if (numConstraints[t1][v1] == 0) {
+          continue;
+        }
+        for (int t2 = 0; t2 < 4; ++t2) {
+          for (int v2 = 0; v2 < variable_relations->at(t1).at(v1).at(t2).size(); ++v2) {
+            variable_relations->at(t1).at(v1).at(t2).at(v2) *= 1.0 / numConstraints[t1][v1];
+          }
+        }
       }
     }
+    variable_impacts = std::make_shared<std::array<std::vector<int>, 4>>();
+  }
 
+  void FlatZincSpace::storeConstraintInformation(const std::vector<ConExpr*>& originalConstraints) {
+    switch (_lnsType) {
+      case CIG:
+        populateCostImpactData();
+      break;
+      case SVR:
+        populateStaticVariableRelationData(originalConstraints);
+      break;
+      case OBJREL:
+        populateObjRelData();
+      break;
+      default:
+        break;
+    }
     default_lns = 60;
 
     last_best_restart = std::make_shared<unsigned long>(0);
     if (last_best_objective == nullptr) {
       last_best_objective = std::make_shared<int>(0);
     }
-
-    ciglns_info = std::make_shared<CIGInfo>(0);
-    variable_impacts = std::make_shared<std::vector<int>>();
-    variable_impacts->clear();
   }
 
   void
-  FlatZincSpace::createBranchers(Printer&p, const std::shared_ptr<AST::Node>& ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err) {
+  FlatZincSpace::createBranchers(Printer&p, AST::Node* ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err) {
     int seed = opt.seed();
     double decay = opt.decay();
     Rnd rnd(static_cast<unsigned int>(seed));
@@ -1339,7 +1498,7 @@ namespace Gecode { namespace FlatZinc {
         if (ann->isArray()) {
           flattenAnnotations(ann->getArray(), flatAnn);
         } else {
-          flatAnn.push_back(ann.get());
+          flatAnn.push_back(ann);
         }
       }
 
@@ -2002,12 +2161,12 @@ namespace Gecode { namespace FlatZinc {
     }
   }
 
-  bool FlatZincSpace::hasInitialIncumbentSolution() const {
+  bool FlatZincSpace::hasInitialIncumbentSolution(AST::Array* _solveAnnotations) {
     std::vector<AST::Node*> flatAnn;
     if (_solveAnnotations->isArray()) {
       flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
     } else {
-      flatAnn.emplace_back(_solveAnnotations.get());
+      flatAnn.emplace_back(_solveAnnotations);
     }
 
     for (unsigned int i = 0; i < flatAnn.size(); ++i) {
@@ -2035,7 +2194,7 @@ namespace Gecode { namespace FlatZinc {
     if (_solveAnnotations->isArray()) {
       flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
     } else {
-      flatAnn.emplace_back(_solveAnnotations.get());
+      flatAnn.emplace_back(_solveAnnotations);
     }
 
     std::vector<std::optional<int>> iv_init(iv.size(), std::optional<int>{});
@@ -2151,19 +2310,18 @@ namespace Gecode { namespace FlatZinc {
     }
   }
 
-  std::shared_ptr<AST::Array>
-  FlatZincSpace::solveAnnotations(void) const {
+  AST::Array* FlatZincSpace::solveAnnotations(void) const {
     return _solveAnnotations;
   }
 
-  void FlatZincSpace::setSolveAnnotations(std::shared_ptr<AST::Array>& solveAnnotations){
+  void FlatZincSpace::setSolveAnnotations(AST::Array* solveAnnotations){
     _solveAnnotations = solveAnnotations;
   }
 
   void
   FlatZincSpace::solve(AST::Array* ann) {
     _method = SAT;
-    _solveAnnotations = std::shared_ptr<AST::Array>(ann);
+    _solveAnnotations = ann;
     last_best_objective = std::make_shared<int>(0);
   }
 
@@ -2172,7 +2330,7 @@ namespace Gecode { namespace FlatZinc {
     _method = MIN;
     _optVar = var;
     _optVarIsInt = isInt;
-    _solveAnnotations = std::shared_ptr<AST::Array>(ann);
+    _solveAnnotations = ann;
     last_best_objective = std::make_shared<int>(std::numeric_limits<int>::max());
   }
 
@@ -2181,7 +2339,7 @@ namespace Gecode { namespace FlatZinc {
     _method = MAX;
     _optVar = var;
     _optVarIsInt = isInt;
-    _solveAnnotations = std::shared_ptr<AST::Array>(ann);
+    _solveAnnotations = ann;
     last_best_objective = std::make_shared<int>(std::numeric_limits<int>::min());
   }
 
@@ -2553,11 +2711,10 @@ namespace Gecode { namespace FlatZinc {
 
   void FlatZincSpace::runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
     SearchController assetSearch(this, out, p, opt, t_total);
-      initIncumbentSolution(assetSearch._incumbentSolution);
-      storeConstraintInformation();
-      assetSearch.init();
-      assetSearch.run();
-    // Delete variable_relations matrix
+    initIncumbentSolution(assetSearch._incumbentSolution);
+    storeConstraintInformation(constraints);
+    assetSearch.init();
+    assetSearch.run();
     variable_relations = nullptr;
     variable_impacts = nullptr;
   }
@@ -2817,27 +2974,27 @@ namespace Gecode { namespace FlatZinc {
     switch (_lnsType) {
       case RANDOM:
       {
-        return _lnsStrategy.random(*this, mi);
+        return LNSstrategies::random(*this, mi);
       }
       case PG:
       {
-        return _lnsStrategy.propagationGuided(*this, mi, 10);
+        return LNSstrategies::propagationGuided(*this, mi, 10);
       }
       case rPG:
       {
-        return _lnsStrategy.reversedPropagationGuided(*this, mi, 10);
+        return LNSstrategies::reversedPropagationGuided(*this, mi, 10);
       }
       case OBJREL:
       {
-        return _lnsStrategy.objectiveRelaxation(*this, mi);
+        return LNSstrategies::objectiveRelaxation(*this, mi);
       }
       case CIG:
       {
-        return _lnsStrategy.costImpactGuided(*this, mi, 2, 0.5);
+        return LNSstrategies::costImpactGuided(*this, mi, 2, 0.5);
       }
       case SVR:
       {
-        return _lnsStrategy.staticVariableRelation(*this, mi);
+        return LNSstrategies::staticVariableRelation(*this, mi);
       }
       default:
       {

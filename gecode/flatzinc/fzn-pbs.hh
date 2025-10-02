@@ -44,6 +44,25 @@ enum class AssetType {
         DUMMY //< Dummy asset.
     };
 
+static FlatZincSpace::LNSType assetToLns(AssetType t) {
+    switch (t) {
+        case AssetType::PGLNS:
+            return FlatZincSpace::LNSType::PG;
+        case AssetType::REVPGLNS:
+            return FlatZincSpace::LNSType::rPG;
+        case AssetType::CIGLNS:
+            return FlatZincSpace::LNSType::CIG;
+        case AssetType::SVRLNS:
+            return FlatZincSpace::LNSType::SVR;
+        case AssetType::OBJRELLNS:
+            return FlatZincSpace::LNSType::OBJREL;
+        case AssetType::LNS_USER:
+            return FlatZincSpace::LNSType::RANDOM;
+        default:
+            return FlatZincSpace::LNSType::NONE;
+    }
+}
+
 struct VarDescription {
     VarType type;
     FlatZincVarArray array;
@@ -267,7 +286,8 @@ public:
 
 class BaseAsset {
     protected:
-    FlatZincSpace* _flatZincSpace;
+    FlatZincSpace& _originalFlatZincSpace;
+    FlatZincSpace* _curFlatZincSpace;
     FlatZincOptions& _flatZincOptions;
     StatusStatistics _statusStatistics;
     unsigned int _assetId;
@@ -280,84 +300,75 @@ class BaseAsset {
     double _solveTime{0.0};
     string _assetStr{};
 
-    BaseAsset(FlatZincSpace* flatZincSpace, FlatZincOptions& flatZincOptions, unsigned int assetId,
-        AssetType assetType, unsigned int copyRecomputationDistance, unsigned int adaptiveRecomputationDistance, unsigned int numThreads) :
-    _flatZincSpace(flatZincSpace),
-    _flatZincOptions(flatZincOptions),
-    _assetType(assetType),
-    _assetId(assetId),
-    _copyRecomputationDistance(copyRecomputationDistance),
-    _adaptiveRecomputationDistance(adaptiveRecomputationDistance),
-    _numThreads(numThreads) {}
+    BaseAsset(FlatZincSpace& flatZincSpace, FlatZincSpace* curFlatZincSpace, FlatZincOptions& flatZincOptions, unsigned int assetId,
+        AssetType assetType, unsigned int copyRecomputationDistance, unsigned int adaptiveRecomputationDistance, unsigned int numThreads);
 
-    Search::Options generateSearchOptions(FlatZincSpace*, Search::Stop*) const;
-
-    static FlatZincSpace* deepClone(const FlatZincSpace*, SearchController&);
+    Search::Options generateSearchOptions(FlatZincSpace&, Search::Stop*) const;
 
     public:
-    BaseAsset(FlatZincSpace* flatZincSpace, FlatZincOptions& flatZincOptions) :
-    BaseAsset(flatZincSpace, flatZincOptions, std::numeric_limits<unsigned int>::max(), AssetType::DUMMY, 0, 0, 0) {}
-        virtual ~BaseAsset() {
-            delete _flatZincSpace;
-            _flatZincSpace = nullptr;
-            _assetStr.clear();
-        }
-        virtual void run() {}
-        [[nodiscard]] virtual FlatZincSpace* flatZincSpace() const {
-            return _flatZincSpace;
-        }
-        [[nodiscard]] virtual BaseEngine* engine() const {
-            return nullptr;
-        }
-        [[nodiscard]] virtual unsigned int numPropagators() const {
-            return _numPropagators;
-        }
-        [[nodiscard]] virtual double solveTime() const {
-            return _solveTime;
-        }
-        [[nodiscard]] virtual StatusStatistics statusStatistics() const {
-            return _statusStatistics;
-        }
-        [[nodiscard]] virtual long unsigned int shavingStart() const {
-            return 0;
-        }
-        [[nodiscard]] virtual FlatZinc::FlatZincSpace::LNSType lnsType() const {
-            return FlatZincSpace::LNSType::NONE;
-        }
-        [[nodiscard]] virtual string assetTypeStr() const {
-            return _assetStr;
-        }
-        [[nodiscard]] virtual Search::Options searchOptions() const {
-            throw std::runtime_error("getSearchOptions not supported on this asset type.");
-        }
-        [[nodiscard]] virtual AssetType assetType() const {
-            return _assetType;
-        }
+    BaseAsset(FlatZincSpace& flatZincSpace, FlatZincOptions& flatZincOptions) :
+    BaseAsset(flatZincSpace, nullptr, flatZincOptions, std::numeric_limits<unsigned int>::max(), AssetType::DUMMY, 0, 0, 0) {}
+    virtual ~BaseAsset() {
+        delete _curFlatZincSpace;
+        _curFlatZincSpace = nullptr;
+        _assetStr.clear();
+    }
+    virtual void run() {}
+    [[nodiscard]] virtual FlatZincSpace& flatZincSpace() const {
+        return _originalFlatZincSpace;
+    }
+    [[nodiscard]] virtual BaseEngine* engine() const {
+        return nullptr;
+    }
+    [[nodiscard]] virtual unsigned int numPropagators() const {
+        return _numPropagators;
+    }
+    [[nodiscard]] virtual double solveTime() const {
+        return _solveTime;
+    }
+    [[nodiscard]] virtual StatusStatistics statusStatistics() const {
+        return _statusStatistics;
+    }
+    [[nodiscard]] virtual long unsigned int shavingStart() const {
+        return 0;
+    }
+    [[nodiscard]] virtual FlatZincSpace::LNSType lnsType() const {
+        return assetToLns(_assetType);
+    }
+    [[nodiscard]] virtual string assetTypeStr() const {
+        return _assetStr;
+    }
+    [[nodiscard]] virtual Search::Options searchOptions() const {
+        throw std::runtime_error("getSearchOptions not supported on this asset type.");
+    }
+    [[nodiscard]] virtual AssetType assetType() const {
+        return _assetType;
+    }
 
-        virtual void setNumPropagators(unsigned int numPropagators) {
-            _numPropagators = numPropagators;
-        }
-        virtual void setStatusStatistics(StatusStatistics statusStatistics) {
-            _statusStatistics = statusStatistics;
-        }
-        virtual void setShavingStart(long unsigned int) {}
-        virtual void setAssetTypeStr(const string& assetStr) {
-            _assetStr = assetStr;
-        }
-        virtual void setEngine(BaseEngine*) {}
-        virtual void setSearchOptions (Search::Options so) { throw std::runtime_error("setSearchOptions not supported on this asset type."); }
+    virtual void setNumPropagators(unsigned int numPropagators) {
+        _numPropagators = numPropagators;
+    }
+    virtual void setStatusStatistics(StatusStatistics statusStatistics) {
+        _statusStatistics = statusStatistics;
+    }
+    virtual void setShavingStart(long unsigned int) {}
+    virtual void setAssetTypeStr(const string& assetStr) {
+        _assetStr = assetStr;
+    }
+    virtual void setEngine(BaseEngine*) {}
+    virtual void setSearchOptions (Search::Options so) { throw std::runtime_error("setSearchOptions not supported on this asset type."); }
 
-        virtual void increaseSolveTime(double time) {
-            _solveTime += time;
-        }
+    virtual void increaseSolveTime(double time) {
+        _solveTime += time;
+    }
 };
 
 class DFSAsset : public BaseAsset {
     public:
-        DFSAsset(SearchController& searchController, FlatZincSpace* fg, FlatZincOptions& fopt,
+        DFSAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
             unsigned int assetId, AssetType assetType, bool oppositeBranching, bool pbsBranching,
             bool sortFlatAnn, unsigned int copyRecomputationDistance, unsigned int adaptiveRecomputationDistance,
-            unsigned int threads);
+            unsigned int numThreads);
 
     ~DFSAsset() override {
             delete _engine;
@@ -390,21 +401,18 @@ class DFSAsset : public BaseAsset {
         AssetExecutor* executor;
 
         Search::Options _searchOptions;
-        FlatZincSpace* _curFlatZincSpace{nullptr};
         BaseEngine* _engine{nullptr};
         long unsigned int _shavingStart{0};
 };
 
 class LNSAsset : public BaseAsset {
     public:
-        LNSAsset(SearchController& searchController, FlatZincSpace* fg, FlatZincOptions& fopt,
+        LNSAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
             unsigned int assetId, AssetType assetType, bool oppositeBranching,
-            bool pbsBranching, bool sortFlatAnnotations, FlatZinc::FlatZincSpace::LNSType lnsType, unsigned int copyRecompuatationDistance,
-            unsigned int adaptiveRecomputationDistance, unsigned int threads, RestartMode restartMode, double restartBase, unsigned int restartScale);
+            bool pbsBranching, bool sortFlatAnnotations, unsigned int copyRecompuatationDistance,
+            unsigned int adaptiveRecomputationDistance, unsigned int numThreads, RestartMode restartMode, double restartBase, unsigned int restartScale);
 
         ~LNSAsset() override {
-            delete _curFlatZincSpace;
-            _curFlatZincSpace = nullptr;
             delete _engine;
             _engine = nullptr;
             if (_branchModifier.pbs_variable_branchings != nullptr){
@@ -420,7 +428,6 @@ class LNSAsset : public BaseAsset {
 
         [[nodiscard]] BaseEngine* engine() const override { return _engine; }
         [[nodiscard]] long unsigned int shavingStart() const override { return _shavingStart; }
-        [[nodiscard]] FlatZinc::FlatZincSpace::LNSType lnsType() const override { return _lnsType; }
         [[nodiscard]] AssetExecutor* getExecutor() const { return executor; }
         [[nodiscard]] Search::Options searchOptions() const override { return _searchOptions; }
 
@@ -436,27 +443,25 @@ class LNSAsset : public BaseAsset {
         RestartMode _restartMode;
         double _restartBase;
         unsigned int _restartScale;
-        FlatZinc::FlatZincSpace::LNSType _lnsType;
         AssetExecutor* executor;
         Search::Options _searchOptions;
     RBSEngine* _engine{nullptr};
-    FlatZincSpace* _curFlatZincSpace{nullptr};
     long unsigned int _shavingStart{0};
 };
 
 class RoundRobinLNSAsset : public BaseAsset {
     public:
-        RoundRobinLNSAsset(SearchController& control, FlatZincSpace* fg, FlatZincOptions& fopt,
+        RoundRobinLNSAsset(SearchController& control, FlatZincSpace& fg, FlatZincOptions& fopt,
             unsigned int asset_id, unsigned int copyRecomputationDistance, unsigned int adaptiveRecompuatationDistance, unsigned int numThreads);
         ;
         void run() override;
 
-        [[nodiscard]] FlatZincSpace* flatZincSpace() const override { return best_asset->flatZincSpace(); }
+        [[nodiscard]] FlatZincSpace& flatZincSpace() const override { return best_asset->flatZincSpace(); }
         [[nodiscard]] BaseEngine* engine() const override { return best_asset->engine(); }
         [[nodiscard]] StatusStatistics statusStatistics() const override { return best_asset->statusStatistics(); }
         [[nodiscard]] unsigned int numPropagators() const override { return best_asset->numPropagators(); }
         [[nodiscard]] double solveTime() const override { return best_asset->solveTime(); }
-        [[nodiscard]] FlatZinc::FlatZincSpace::LNSType lnsType() const override { return best_asset->lnsType(); }
+        [[nodiscard]] FlatZincSpace::LNSType lnsType() const override { return best_asset->lnsType(); }
         [[nodiscard]] string assetTypeStr() const override { return best_asset->assetTypeStr(); }
         [[nodiscard]] Search::Options searchOptions() const override { return best_asset->searchOptions(); }
         [[nodiscard]] AssetType assetType() const override { return best_asset->assetType(); }
@@ -477,7 +482,7 @@ class RoundRobinLNSAsset : public BaseAsset {
 
 class ShavingAsset : public BaseAsset {
     public:
-        ShavingAsset(SearchController& control, FlatZincSpace* fg, FlatZincOptions& fopt, unsigned int assetId, AssetType assetType, int maxDomShavingSize, bool do_bounds_shaving, VariableSorter* sorter);
+        ShavingAsset(SearchController& control, FlatZincSpace& fg, FlatZincOptions& fopt, unsigned int assetId, AssetType assetType, int maxDomShavingSize, bool do_bounds_shaving, VariableSorter* sorter);
 
     ~ShavingAsset() override {
             delete _sorter;
@@ -487,7 +492,7 @@ class ShavingAsset : public BaseAsset {
         void run() override {Gecode::Support::Thread::run(_executor);};
         void runShavingPass(SearchController& control, StatusStatistics statisStatistics, CloneStatistics cloneStatistics, bool& hasReportedLiteral, const std::function<std::vector<Literal> (VarDescription&, FlatZincSpace*)> &literalExtractor) const;
         
-        [[nodiscard]] FlatZincSpace* flatZincSpace() const override { return _rootFlatZincSpace; }
+        [[nodiscard]] FlatZincSpace& flatZincSpace() const override { return *_curFlatZincSpace; }
         [[nodiscard]] bool doBoundsShaving() const { return _doBoundsShaving; }
         [[nodiscard]] int getMaxDomShavingSize() const { return _maxDomShavingSize; }
         [[nodiscard]] long unsigned int shavingStart() const override { return 0; }
@@ -502,7 +507,6 @@ class ShavingAsset : public BaseAsset {
         int _maxDomShavingSize;
         bool _doBoundsShaving;
         VariableSorter* _sorter;
-    FlatZincSpace* _rootFlatZincSpace{nullptr};
 };
 
 class SearchController {
