@@ -46,8 +46,8 @@ void SearchController::thread_done() {
 bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &sol,
                                           unsigned int asset_id) {
     // If the optimum was found, then stop there is no need to update the best solution.
-    for (int i = 0; i < sol->iv.size(); ++i) {
-        assert(sol->iv[i].width() == 1);
+    for (const auto& intVar : sol->iv) {
+        assert(intVar.assigned());
     }
 
     _solutionMutex.lock();
@@ -365,7 +365,7 @@ bool SearchController::init() {
     if (FlatZincSpace::hasInitialIncumbentSolution(_flatZincSpace->solveAnnotations())) {
         auto* clone = _flatZincSpace->deepClone(_incumbentSolution, _optimumFound);
         auto bm = BranchModifier(false, false, false);
-        clone->applyInitialIncumbentSolution();
+        clone->applyInitialIncumbentSolution(_flatZincSpace->solveAnnotations());
         const auto sol = std::shared_ptr<FlatZincSpace>(dynamic_cast<FlatZincSpace*>(clone->clone()));
         delete clone;
         updateBestSolution(sol, std::numeric_limits<unsigned int>::max());

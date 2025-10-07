@@ -817,7 +817,7 @@ namespace Gecode { namespace FlatZinc {
     void populateLnsVars(const std::vector<ConExpr*>&);
     [[nodiscard]] int compareObjectiveValue(const FlatZincSpace& other) const;
     [[nodiscard]] static bool hasInitialIncumbentSolution(AST::Array* solveAnnotations);
-    void applyInitialIncumbentSolution();
+    void applyInitialIncumbentSolution(AST::Array* solveAnnotations);
     void storeConstraintInformation(const std::vector<ConExpr*>& originalConstraints);
 
     /// Return the solve item annotations

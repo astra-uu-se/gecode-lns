@@ -2181,20 +2181,23 @@ namespace Gecode { namespace FlatZinc {
     return false;
   }
 
-  void FlatZincSpace::applyInitialIncumbentSolution() {
+  void FlatZincSpace::applyInitialIncumbentSolution(AST::Array* solveAnnotations) {
     if (_incumbentSolution == nullptr) {
       throw std::runtime_error("FlatZincSpace::populateInitialIncumbentSolution: _incumbentSolution == nullptr");
     }
     if (_incumbentSolution->hasValue()) {
       throw std::runtime_error("FlatZincSpace::populateInitialIncumbentSolution: _incumbentSolution already a solution");
     }
+    if (solveAnnotations == nullptr) {
+      throw std::runtime_error("FlatZincSpace::populateInitialIncumbentSolution: solveAnnotations is nullptr");
+    }
 
 
     std::vector<AST::Node*> flatAnn;
-    if (_solveAnnotations->isArray()) {
-      flattenAnnotations(_solveAnnotations->getArray(), flatAnn);
+    if (solveAnnotations->isArray()) {
+      flattenAnnotations(solveAnnotations->getArray(), flatAnn);
     } else {
-      flatAnn.emplace_back(_solveAnnotations);
+      flatAnn.emplace_back(solveAnnotations);
     }
 
     std::vector<std::optional<int>> iv_init(iv.size(), std::optional<int>{});
