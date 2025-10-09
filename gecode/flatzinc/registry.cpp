@@ -194,8 +194,9 @@ namespace Gecode { namespace FlatZinc {
     }
 
     /* linear (in-)equations */
-    void p_int_lin_CMP(FlatZincSpace& s, IntRelType irt, const ConExpr& ce,
+    void p_int_lin_CMP(Home h, IntRelType irt, const ConExpr& ce,
                        AST::Node* ann) {
+      auto& s = dynamic_cast<FlatZincSpace&>(static_cast<Space&>(h));
       IntArgs ia = s.arg2intargs(ce[0]);
       int singleIntVar;
       if (s.isBoolArray(ce[1],singleIntVar)) {
@@ -210,18 +211,18 @@ namespace Gecode { namespace FlatZinc {
                 ia_tmp[count++] = ia[singleIntVar] == -1 ? ia[i] : -ia[i];
             }
             IntRelType t = (ia[singleIntVar] == -1 ? irt : swap(irt));
-            linear(s, ia_tmp, iv, t, siv, s.ann2ipl(ann));
+            linear(h, ia_tmp, iv, t, siv, s.ann2ipl(ann));
           } else {
             IntVarArgs iv = s.arg2intvarargs(ce[1]);
-            linear(s, ia, iv, irt, ce[2]->getInt(), s.ann2ipl(ann));
+            linear(h, ia, iv, irt, ce[2]->getInt(), s.ann2ipl(ann));
           }
         } else {
           BoolVarArgs iv = s.arg2boolvarargs(ce[1]);
-          linear(s, ia, iv, irt, ce[2]->getInt(), s.ann2ipl(ann));
+          linear(h, ia, iv, irt, ce[2]->getInt(), s.ann2ipl(ann));
         }
       } else {
         IntVarArgs iv = s.arg2intvarargs(ce[1]);
-        linear(s, ia, iv, irt, ce[2]->getInt(), s.ann2ipl(ann));
+        linear(h, ia, iv, irt, ce[2]->getInt(), s.ann2ipl(ann));
       }
     }
     void p_int_lin_CMP_reif(FlatZincSpace& s, IntRelType irt, ReifyMode rm,
@@ -268,6 +269,16 @@ namespace Gecode { namespace FlatZinc {
       }
     }
     void p_int_lin_eq(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
+      if (s.soften_constraints && ann->hasAtom("soften")) {
+        if (s.use_self_subsuming && !ann->hasAtom("onlyViol"))
+          p_int_lin_CMP(PropagatorGroup::soft_subsume(s), IRT_EQ, ce, ann);
+        //Post penalty
+        IntArgs ia = s.arg2intargs(ce[0]);
+        IntVarArgs iv = s.arg2intvarargs(ce[1]);
+        int is = ce[2]->getInt();
+        s.viol_vars.push_back(expr(s, abs(is - sum(ia, iv)))); // violation
+        return;
+      }
       p_int_lin_CMP(s, IRT_EQ, ce, ann);
     }
     void p_int_lin_eq_reif(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
@@ -286,6 +297,22 @@ namespace Gecode { namespace FlatZinc {
       p_int_lin_CMP_reif(s, IRT_NQ, RM_IMP, ce, ann);
     }
     void p_int_lin_le(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
+      if (s.soften_constraints && ann->hasAtom("soften")) {
+        // std::cout << "%% Detected soft constraint" << std::endl;
+        //TODO: change space to subsuming home.
+        if (s.use_self_subsuming && !ann->hasAtom("onlyViol")){
+          p_int_lin_CMP(PropagatorGroup::soft_subsume(s), IRT_LQ, ce, ann);
+          // std::cout << "%% Posting self_subsuming" << std::endl;
+        }
+        // Post penalty
+        IntArgs ia = s.arg2intargs(ce[0]);
+        IntVarArgs iv = s.arg2intvarargs(ce[1]);
+        int is = ce[2]->getInt();
+        IntVar viol =
+            expr(s, max(0, sum(ia, iv) - is));
+        s.viol_vars.push_back(viol);  // violation
+        return;
+      }
       p_int_lin_CMP(s, IRT_LQ, ce, ann);
     }
     void p_int_lin_le_reif(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
@@ -1098,19 +1125,47 @@ namespace Gecode { namespace FlatZinc {
     void p_global_cardinality_low_up_closed(FlatZincSpace& s,
                                             const ConExpr& ce,
                                             AST::Node* ann) {
-      IntVarArgs x = s.arg2intvarargs(ce[0]);
-      IntArgs cover = s.arg2intargs(ce[1]);
+      if (s.soften_constraints && ann->hasAtom("soften")) {
+        // std::cout << "%% Detected soft gcc_low_up_closed" << std::endl;
 
-      IntArgs lbound = s.arg2intargs(ce[2]);
-      IntArgs ubound = s.arg2intargs(ce[3]);
-      IntSetArgs y(cover.size());
-      for (int i=cover.size(); i--;)
-        y[i] = IntSet(lbound[i],ubound[i]);
-      unshare(s, x);
-      IntPropLevel ipl = s.ann2ipl(ann);
-      if (ipl==IPL_DEF)
-        ipl=IPL_BND;
-      count(s, x, y, cover, ipl);
+        IntVarArgs x = s.arg2intvarargs(ce[0]);
+        IntArgs cover = s.arg2intargs(ce[1]);
+
+        IntArgs lbound = s.arg2intargs(ce[2]);
+        IntArgs ubound = s.arg2intargs(ce[3]);
+        IntSetArgs y(cover.size());
+        for (int i = cover.size(); i--;) y[i] = IntSet(lbound[i], ubound[i]);
+        unshare(s, x);
+        IntPropLevel ipl = s.ann2ipl(ann);
+        if (ipl == IPL_DEF) ipl = IPL_BND;
+        if(s.use_self_subsuming && !ann->hasAtom("onlyViol"))
+          count(PropagatorGroup::soft_subsume(s), x, y, cover, ipl);
+        //Add violation:
+        IntVarArgs counts;
+        for (int i = cover.size(); i--;) {
+          counts << IntVar(s, 0, x.size());
+        }
+        count(s, x, counts, cover, IPL_DOM);
+        IntVarArgs viols;
+        for (int i = cover.size(); i--;) {
+          viols << expr(s, max(
+            max(0,lbound[i]-counts[i]),
+            max(0, counts[i]-ubound[i])));
+        }
+        s.viol_vars.push_back(expr(s, sum(viols)));
+      } else {
+        IntVarArgs x = s.arg2intvarargs(ce[0]);
+        IntArgs cover = s.arg2intargs(ce[1]);
+
+        IntArgs lbound = s.arg2intargs(ce[2]);
+        IntArgs ubound = s.arg2intargs(ce[3]);
+        IntSetArgs y(cover.size());
+        for (int i = cover.size(); i--;) y[i] = IntSet(lbound[i], ubound[i]);
+        unshare(s, x);
+        IntPropLevel ipl = s.ann2ipl(ann);
+        if (ipl == IPL_DEF) ipl = IPL_BND;
+        count(s, x, y, cover, ipl);
+      }
     }
 
     void p_minimum(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {

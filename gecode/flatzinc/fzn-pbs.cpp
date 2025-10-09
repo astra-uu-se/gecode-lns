@@ -344,6 +344,7 @@ void SearchController::createAssets(double initTime) {
 bool SearchController::init() {
     Support::Timer propTimer;
     propTimer.start();
+    _flatZincSpace->populateCombinedObjective(_flatZincOptions);
     const SpaceStatus preSearchProp = _flatZincSpace->status(_statusStatistics);
     const double initTime = propTimer.stop();
     // Make search space clone-able by calling status on it. If it fails, then the model is unsatisfiable.

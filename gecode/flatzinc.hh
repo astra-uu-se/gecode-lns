@@ -306,6 +306,9 @@ namespace Gecode { namespace FlatZinc {
       Gecode::Driver::BoolOption        _stat;       ///< Emit statistics
       Gecode::Driver::StringValueOption _output;     ///< Output file
 
+      Gecode::Driver::BoolOption _use_self_subsuming;
+      Gecode::Driver::BoolOption _allow_softening;
+
 #ifdef GECODE_HAS_CPPROFILER
       Gecode::Driver::ProfilerOption    _profiler; ///< Use this execution id for the CP-profiler
 #endif
@@ -356,7 +359,14 @@ namespace Gecode { namespace FlatZinc {
 
       _mode("mode","how to execute script",Gecode::SM_SOLUTION),
       _stat("s","emit statistics"),
-      _output("o","file to send output to")
+      _output("o","file to send output to"),
+      _use_self_subsuming("selfsubsuming",
+                             "Use selfsubsuming propagators when softening",
+                             true),
+         _allow_softening(
+             "soften",
+             "Allow annotated constraints to be automatically softened",
+             true)
 
 #ifdef GECODE_HAS_CPPROFILER
       ,
@@ -383,7 +393,9 @@ namespace Gecode { namespace FlatZinc {
       add(_nogoods); add(_nogoods_limit);
       add(_mode); add(_stat); add(_use_pbs); add(_full_s); add(_assets);
       add(_pbs_asset_type);
-      add(_output); 
+      add(_output);
+      add(_use_self_subsuming);
+      add(_allow_softening);
 #ifdef GECODE_HAS_CPPROFILER
       add(_profiler);
 #endif
@@ -443,6 +455,8 @@ namespace Gecode { namespace FlatZinc {
     unsigned int nogoods_limit(void) const { return _nogoods_limit.value(); }
     bool interrupt(void) const { return _interrupt.value(); }
     int pbsAssetType(void) const { return _pbs_asset_type.value(); }
+    bool use_self_subsuming(void) const { return _use_self_subsuming.value(); }
+    bool allow_softening(void) const { return _allow_softening.value(); }
 
 #ifdef GECODE_HAS_CPPROFILER
 
@@ -593,6 +607,11 @@ namespace Gecode { namespace FlatZinc {
     FloatVarArray fv_lns;
     SetVarArray sv_lns;
 
+    std::shared_ptr<std::vector<bool>> iv_is_root;
+    std::shared_ptr<std::vector<bool>> bv_is_root;
+    std::shared_ptr<std::vector<bool>> fv_is_root;
+    std::shared_ptr<std::vector<bool>> sv_is_root;
+
     // Gecode::IntVarArray iv_lns_default;
     // Gecode::IntVarArray iv_lns_obj_relax;
     // Gecode::IntVarArray non_fzn_introduced_vars;
@@ -728,8 +747,18 @@ namespace Gecode { namespace FlatZinc {
     /// Whether the introduced variables still need to be copied
     bool needAuxVars;
 
+    /// Violation variables from auto-softening.
+    std::vector<Gecode::IntVar> viol_vars;
+
+    Gecode::IntVar total_viol;
+
+    Gecode::IntVar combined_obj;
+    bool use_self_subsuming;
+    bool soften_constraints;
+
+
     /// Construct empty space
-    FlatZincSpace(Rnd& random = defrnd);
+    FlatZincSpace(Rnd& random = defrnd, const FlatZincOptions& opt=nullptr);
 
     /// Destructor
     ~FlatZincSpace(void);
@@ -815,6 +844,7 @@ namespace Gecode { namespace FlatZinc {
     void deletePBSArrays();
     void initIncumbentSolution(std::shared_ptr<IncumbentSolution>& solution);
     void populateLnsVars(const std::vector<ConExpr*>&);
+    void populateCombinedObjective(const FlatZincOptions &opt);
     [[nodiscard]] int compareObjectiveValue(const FlatZincSpace& other) const;
     [[nodiscard]] static bool hasInitialIncumbentSolution(AST::Array* solveAnnotations);
     void applyInitialIncumbentSolution(AST::Array* solveAnnotations);
@@ -939,7 +969,8 @@ namespace Gecode { namespace FlatZinc {
   GECODE_FLATZINC_EXPORT
   FlatZincSpace* parse(const std::string& fileName,
                        Printer& p, std::ostream& err = std::cerr,
-                       FlatZincSpace* fzs=nullptr, Rnd& rnd=defrnd);
+                       FlatZincSpace* fzs=nullptr, Rnd& rnd=defrnd,
+                       const FlatZincOptions& opt = nullptr);
 
   /**
    * \brief Parse FlatZinc from \a is into \a fzs and return it.
@@ -949,7 +980,7 @@ namespace Gecode { namespace FlatZinc {
   GECODE_FLATZINC_EXPORT
   FlatZincSpace* parse(std::istream& is,
                        Printer& p, std::ostream& err = std::cerr,
-                       FlatZincSpace* fzs=nullptr, Rnd& rnd=defrnd);
+                       FlatZincSpace* fzs=nullptr, Rnd& rnd=defrnd, const FlatZincOptions& opt = nullptr);
 }}
 
 #endif

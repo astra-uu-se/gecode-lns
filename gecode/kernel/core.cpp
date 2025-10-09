@@ -269,8 +269,17 @@ namespace Gecode {
         // Clear med but leave propagator in queue
         p->u.med = 0;
         switch (p->propagate(*this,med_o)) {
-        case ES_FAILED:
-          goto failed;
+          case ES_FAILED:
+            if (p->group() == PropagatorGroup::soft_subsume) {
+              // propagator cleanup:
+              this->ES_SUBSUMED(*p);
+              // kernel cleanup:
+              p->unlink();
+              rfree(p, p->u.size);
+              goto f_stable_or_unstable;
+            } else {
+              goto failed;
+            }
         case ES_NOFIX:
           // Find next, if possible
           if (p->u.med != 0) {
@@ -332,7 +341,16 @@ namespace Gecode {
         p->u.med = 0;
         switch (p->propagate(*this,med_o)) {
         case ES_FAILED:
-          goto failed;
+          if (p->group() == PropagatorGroup::soft_subsume) {
+            // propagator cleanup:
+            this->ES_SUBSUMED(*p);
+            // kernel cleanup:
+            p->unlink();
+            rfree(p, p->u.size);
+            goto d_stable_or_unstable;
+          } else {
+            goto failed;
+          }
         case ES_NOFIX:
           // Find next, if possible
           if (p->u.med != 0) {
@@ -410,8 +428,18 @@ namespace Gecode {
         p->u.med = 0;
         switch (p->propagate(*this,med_o)) {
         case ES_FAILED:
-          GECODE_STATUS_TRACE(p,FAILED);
-          goto failed;
+          if (p->group() == PropagatorGroup::soft_subsume) {
+            //std::cout << "Subsumed " << p->id()  << " " << typeid(*p).name() << std::endl;
+            // propagator cleanup:
+            this->ES_SUBSUMED(*p);
+            // kernel cleanup:
+            p->unlink();
+            rfree(p, p->u.size);
+            goto t_stable_or_unstable;
+          } else {
+            GECODE_STATUS_TRACE(p, FAILED);
+            goto failed;
+          }
         case ES_NOFIX:
           // Find next, if possible
           if (p->u.med != 0) {
@@ -918,6 +946,7 @@ namespace Gecode {
   unsigned int Group::next = GROUPID_DEF+1;
   Support::Mutex Group::m;
 
+  PropagatorGroup PropagatorGroup::soft_subsume;
 
   Group::Group(void) {
     {

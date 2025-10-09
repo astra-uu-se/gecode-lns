@@ -61,8 +61,8 @@ int main(int argc, char** argv) {
   try {
     std::shared_ptr<FlatZincSpace> fg(
     !strcmp(filename, "-")
-      ? parse(cin, p, std::cerr, nullptr, rnd)
-      : parse(filename, p, std::cerr, nullptr, rnd));
+      ? parse(cin, p, std::cerr, nullptr, rnd, opt)
+      : parse(filename, p, std::cerr, nullptr, rnd, opt));
     if (fg){
       if (opt.output()) {
         std::ofstream os(opt.output());

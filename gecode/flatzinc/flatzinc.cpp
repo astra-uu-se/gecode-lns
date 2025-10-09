@@ -54,6 +54,8 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include "test/test.hh"
+
 
 namespace std {
 
@@ -833,6 +835,8 @@ namespace Gecode { namespace FlatZinc {
 
       on_restart_iv.update(*this, f.on_restart_iv);
       on_restart_bv.update(*this, f.on_restart_bv);
+      use_self_subsuming = f.use_self_subsuming;
+      combined_obj.update(*this, f.combined_obj);
 #ifdef GECODE_HAS_SET_VARS
       on_restart_sv.update(*this, f.on_restart_sv);
 #endif
@@ -896,7 +900,7 @@ namespace Gecode { namespace FlatZinc {
 #endif
     }
 
-  FlatZincSpace::FlatZincSpace(Rnd& random)
+  FlatZincSpace::FlatZincSpace(Rnd& random, const FlatZincOptions& options)
   : _initData(new FlatZincSpaceInitData),
     intVarCount(-1),
     boolVarCount(-1),
@@ -916,7 +920,9 @@ namespace Gecode { namespace FlatZinc {
     _lnsAnnType(LNSAnnType::NO_LNS_ANN),
     _incumbentSolution(nullptr),
     optimum_found(nullptr),
-    needAuxVars(true) {
+    needAuxVars(true),
+    use_self_subsuming(options.use_self_subsuming()),
+    soften_constraints(options.allow_softening()) {
     branchInfo.init();
   }
 
@@ -933,6 +939,9 @@ namespace Gecode { namespace FlatZinc {
     boolVarCount = 0;
     bv = BoolVarArray(*this, boolVars);
     bv_introduced = std::vector<bool>(2*boolVars);
+
+    total_viol = IntVar(*this, 0, Int::Limits::max);
+    combined_obj = IntVar(*this, Int::Limits::min, Int::Limits::max);
 #ifdef GECODE_HAS_SET_VARS
     setVarCount = 0;
     sv = SetVarArray(*this, setVars);
@@ -1080,7 +1089,10 @@ namespace Gecode { namespace FlatZinc {
   namespace {
     struct ConExprOrder {
       bool operator() (ConExpr* ce0, ConExpr* ce1) {
-        return ce0->args->a.size() < ce1->args->a.size();
+        if (ce0->ann->hasAtom("soften") == ce1->ann->hasAtom("soften")) {
+          return ce0->args->a.size() < ce1->args->a.size();
+        }
+        return ce0->ann->hasAtom("soften") < ce1->ann->hasAtom("soften");
       }
     };
   }
@@ -2608,7 +2620,11 @@ namespace Gecode { namespace FlatZinc {
       while (FlatZincSpace* next_sol = se.next()) {
         sol = next_sol;
         --findSol;
-        if (printAll || findSol == 0) {
+        if (!viol_vars.empty()) {
+          out << "%% Violation:" << sol->total_viol << " " << sol->total_viol
+              << std::endl;
+        }
+        if ((viol_vars.empty() || sol->total_viol.val() == 0) && (printAll || findSol == 0)) {
           sol->print(out, p);
           out << "----------" << std::endl;
         }
@@ -2691,10 +2707,40 @@ namespace Gecode { namespace FlatZinc {
       "Branching with plugins not supported (requires Qt support)");
   }
 #endif
+
+  void FlatZincSpace::populateCombinedObjective(const FlatZincOptions& opt) {
+    if(!viol_vars.empty()){
+      IntVarArgs v;
+      for (int i = 0; i < viol_vars.size();i++){
+        v << viol_vars[i];
+      }
+      rel(*this, total_viol == sum(v));
+
+      if (_method == MIN)
+        rel(*this, combined_obj == total_viol * 200 + iv[_optVar] * 1);
+      else if(_method == MAX)
+        rel(*this, combined_obj == total_viol * 200 - iv[_optVar] * 1);
+      else{
+        rel(*this, combined_obj == total_viol);
+        _method = MIN;
+      }
+    } else if (_optVarIsInt) {
+      if (_method == MIN)
+        rel(*this, combined_obj == iv[_optVar]);
+      else if(_method == MAX){
+        rel(*this, combined_obj == -iv[_optVar]);
+        _method = MIN;
+      }
+    } else {
+      rel(*this, combined_obj == 0);
+    }
+  }
+
   void
   FlatZincSpace::run(std::ostream& out, Printer& p,
                       FlatZincOptions& opt, Support::Timer& t_total) {
     
+    this->populateCombinedObjective(opt);
     BranchModifier bm(false, false, false);
     this->postConstraints(constraints, false);
     this->createBranchers(p, this->solveAnnotations(), opt, false, bm);
@@ -2728,28 +2774,12 @@ namespace Gecode { namespace FlatZinc {
     const auto global_solution = _incumbentSolution->load();
 
     if (_optVarIsInt) {
-      const int local_objective = dynamic_cast<const FlatZincSpace&>(s).iv[_optVar].val();
-      // Make sure the global solution exists and that it is assigned.
-      if (global_solution != nullptr && global_solution->iv[global_solution->optVar()].assigned()){
-        const int global_objective = global_solution->iv[global_solution->_optVar].val();
-        if (_method == MIN){
-          const int best_objective = std::min(local_objective, global_objective);
-          rel(*this, iv[_optVar], IRT_LE, best_objective);
-        }
-        else if (_method == MAX){
-          const int best_objective = std::max(local_objective, global_objective);
-          rel(*this, iv[_optVar], IRT_GR, best_objective);
-        }
-      }
-      // If not PBS or no solution has been found, update local bounds.
-      else{
-        if (_method == MIN){
-          rel(*this, iv[_optVar], IRT_LE, local_objective);
-        }
-        else if (_method == MAX){
-          rel(*this, iv[_optVar], IRT_GR, local_objective);
-        } 
-      }
+      const int local_objective = dynamic_cast<const FlatZincSpace&>(s).combined_obj.val();
+      const int best_objective = (global_solution != nullptr && global_solution->combined_obj.assigned())
+          // Make sure the global solution exists and that it is assigned.
+        ? std::min(local_objective, global_solution->combined_obj.val())
+        : local_objective;
+      rel(*this, combined_obj, IRT_LE, best_objective);
     }
     else {
 #ifdef GECODE_HAS_FLOAT_VARS

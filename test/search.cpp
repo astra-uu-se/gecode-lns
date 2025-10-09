@@ -290,11 +290,11 @@ namespace Test {
         switch (mi.type()) {
         case MetaInfo::RESTART:
           if (mi.last() != nullptr) {
-            const HasSolutions* s
-              = static_cast<const HasSolutions*>(mi.last());
+            const HasSolutions& s
+              = dynamic_cast<const HasSolutions&>(*(mi.last()));
             BoolVarArgs b;
             for (int i=0; i<x.size(); i++)
-              b << expr(*this, x[i] == s->x[i]);
+              b << expr(*this, x[i] == s.x[i]);
             rel(*this, BOT_AND, b, 0);
           }
           break;

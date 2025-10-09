@@ -74,10 +74,12 @@
  * To be used inside post functions.
  * \ingroup TaskActor
  */
-#define GECODE_ME_FAIL(me) do {   \
-  if (::Gecode::me_failed(me)) {  \
-    (home).fail();                \
-    return;                       \
+#define GECODE_ME_FAIL(me) do {                                                    \
+  if (::Gecode::me_failed(me)) {                                                   \
+    if (Home(home).propagatorgroup() != ::Gecode::PropagatorGroup::soft_subsume) { \
+      (home).fail();                                                               \
+    }                                                                              \
+    return;                                                                        \
   }} while (0)
 
 
@@ -100,12 +102,15 @@
  *
  * \ingroup TaskActor
  */
-#define GECODE_ES_FAIL(es) do {                                 \
-    ::Gecode::ExecStatus gecode_es_ ## __LINE__ = (es);         \
-    assert(gecode_es_ ## __LINE__ != ::Gecode::ES_SUBSUMED_);   \
-    if (gecode_es_ ## __LINE__ < ::Gecode::ES_OK) {             \
-      (home).fail(); return;                                    \
-    }                                                           \
+#define GECODE_ES_FAIL(es) do {                                                      \
+    ::Gecode::ExecStatus gecode_es_ ## __LINE__ = (es);                              \
+    assert(gecode_es_ ## __LINE__ != ::Gecode::ES_SUBSUMED_);                        \
+    if (gecode_es_ ## __LINE__ < ::Gecode::ES_OK) {                                  \
+      if (Home(home).propagatorgroup() != ::Gecode::PropagatorGroup::soft_subsume) { \
+        (home).fail();                                                               \
+      }                                                                              \
+      return;                                                                        \
+    }                                                                                \
   } while (0)
 
 /**
