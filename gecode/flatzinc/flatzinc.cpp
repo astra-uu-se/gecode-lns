@@ -819,7 +819,9 @@ namespace Gecode { namespace FlatZinc {
 #endif
       _incumbentSolution(f._incumbentSolution),
       optimum_found(f.optimum_found),
-      needAuxVars(f.needAuxVars)
+      needAuxVars(f.needAuxVars),
+      use_self_subsuming(f.use_self_subsuming),
+      soften_constraints(f.soften_constraints)
       {
       _optVar = f._optVar;
       _optVarIsInt = f._optVarIsInt;
@@ -835,8 +837,13 @@ namespace Gecode { namespace FlatZinc {
 
       on_restart_iv.update(*this, f.on_restart_iv);
       on_restart_bv.update(*this, f.on_restart_bv);
-      use_self_subsuming = f.use_self_subsuming;
+      total_viol.update(*this, f.total_viol);
       combined_obj.update(*this, f.combined_obj);
+      viol_vars.reserve(f.viol_vars.size());
+      for (int i = 0; i < f.viol_vars.size(); ++i) {
+        viol_vars.emplace_back();
+        viol_vars.back().update(*this, f.viol_vars[i]);
+      }
 #ifdef GECODE_HAS_SET_VARS
       on_restart_sv.update(*this, f.on_restart_sv);
 #endif
@@ -918,7 +925,7 @@ namespace Gecode { namespace FlatZinc {
     variable_impacts(nullptr),
     ciglns_info(nullptr),
     _lnsAnnType(LNSAnnType::NO_LNS_ANN),
-    _incumbentSolution(nullptr),
+    _incumbentSolution(std::make_shared<IncumbentSolution>()),
     optimum_found(nullptr),
     needAuxVars(true),
     use_self_subsuming(options.use_self_subsuming()),
@@ -1515,7 +1522,7 @@ namespace Gecode { namespace FlatZinc {
       }
 
       if (bm.sort_flat_ann){
-        bm.sortFlatAnn(flatAnn, iv);
+        bm.sortFlatAnn(flatAnn, iv, bv);
       }
 
       for (unsigned int i=0; i<flatAnn.size(); i++) {
@@ -2016,9 +2023,9 @@ namespace Gecode { namespace FlatZinc {
     if (_method == MIN) {
       if (_optVarIsInt) {
         std::vector<std::string> names(1);
-        names[0] = p.intVarName(_optVar);
+        names[0] = _optVar < 0 ? "combinedObjective" : p.intVarName(_optVar);
         BrancherGroup bg;
-        branch(bg(*this), iv[_optVar], INT_VAL_MIN(),
+        branch(bg(*this), combined_obj, INT_VAL_MIN(),
                &varValPrint<IntVar>);
         branchInfo.add(bg,"=","!=",names);
       } else {
@@ -2033,6 +2040,7 @@ namespace Gecode { namespace FlatZinc {
       }
     } else if (_method == MAX) {
       if (_optVarIsInt) {
+        assert(false);
         std::vector<std::string> names(1);
         names[0] = p.intVarName(_optVar);
         BrancherGroup bg;
@@ -2053,11 +2061,19 @@ namespace Gecode { namespace FlatZinc {
   }
 
   int FlatZincSpace::compareObjectiveValue(const FlatZincSpace& other) const {
-    if (_method != other._method) {
+    if (method() != other.method()) {
       throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different methods.");
     }
-    if (_method == SAT) {
+    if (method() == SAT) {
       return 0;
+    }
+    if (!viol_vars.empty() && !other.viol_vars.empty()) {
+      if (total_viol.val() < other.total_viol.val()) {
+        return -1;
+      }
+      if (total_viol.val() > other.total_viol.val()) {
+        return 1;
+      }
     }
     if (_optVarIsInt != other._optVarIsInt) {
       throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different objective variable types.");
@@ -2073,20 +2089,13 @@ namespace Gecode { namespace FlatZinc {
       return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
     }
 #endif
-    const int thisVal = iv[_optVar].min();
-    const int otherVal = other.iv[other._optVar].min();
+    const int thisVal = _optVar < 0 ? combined_obj.min() : iv[_optVar].min();
+    const int otherVal = other._optVar < 0 ? other.combined_obj.min() : other.iv[other._optVar].min();
     if (thisVal == otherVal) {
       return 0;
     }
     return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
   }
-
-  void FlatZincSpace::initIncumbentSolution(std::shared_ptr<IncumbentSolution> &solution) {
-    if (_incumbentSolution == nullptr) {
-      _incumbentSolution = solution;
-    }
-  }
-
 
   void FlatZincSpace::populateLnsVars(const std::vector<ConExpr*>& conExpressions) {
     if (iv_lns.size() > 0 || bv_lns.size() > 0 || fv_lns.size() > 0 || sv_lns.size() > 0) {
@@ -2617,21 +2626,22 @@ namespace Gecode { namespace FlatZinc {
       bool printAll = _method == SAT || opt.allSolutions() || noOfSolutions != 0;
       int findSol = noOfSolutions;
       FlatZincSpace* sol = nullptr;
+      bool hasSolution = noOfSolutions > 0;
       while (FlatZincSpace* next_sol = se.next()) {
         sol = next_sol;
         --findSol;
         if (!viol_vars.empty()) {
-          out << "%% Violation:" << sol->total_viol << " " << sol->total_viol
-              << std::endl;
+          out << "%% Violation: " << sol->total_viol << std::endl;
         }
-        if ((viol_vars.empty() || sol->total_viol.val() == 0) && (printAll || findSol == 0)) {
+        if ((viol_vars.empty() || sol->total_viol.val() == 0) && (_optVar < 0 || printAll || findSol == 0)) {
+          hasSolution = hasSolution || (_optVar < 0 && sol->total_viol.val() == 0);
           sol->print(out, p);
           out << "----------" << std::endl;
         }
         delete sol;
       }
       if (!se.stopped()) {
-        if (noOfSolutions > 0) {
+        if (noOfSolutions > 0 || hasSolution) {
           out << "==========" << std::endl;
         } else {
           out << "=====UNSATISFIABLE=====" << std::endl;
@@ -2760,7 +2770,6 @@ namespace Gecode { namespace FlatZinc {
 
   void FlatZincSpace::runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
     SearchController assetSearch(this, out, p, opt, t_total);
-    initIncumbentSolution(assetSearch._incumbentSolution);
     storeConstraintInformation(constraints);
     assetSearch.init();
     assetSearch.run();
@@ -2770,6 +2779,7 @@ namespace Gecode { namespace FlatZinc {
 
   void
   FlatZincSpace::constrain(const Space& s) {
+    assert(_incumbentSolution != nullptr);
     // If PBS, update global bounds.
     const auto global_solution = _incumbentSolution->load();
 

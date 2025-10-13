@@ -72,13 +72,13 @@ int main(int argc, char** argv) {
           exit(EXIT_FAILURE);
         }
         // Force the use of regular Gecode if satisfaction problem (as the portfolio is only implemented for optimisation problems)
-        if (opt.usePBS() && fg->method() != FlatZincSpace::Meth::SAT && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
+        if (opt.usePBS() && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
           fg->runAssetSearch(os, p, opt, t_total);
         } else {
           fg->run(os, p, opt, t_total);
         }
         os.close();
-      } else if (opt.usePBS() && fg->method() != FlatZincSpace::Meth::SAT && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
+      } else if (opt.usePBS() && (opt.threads() > 1 || opt.pbsAssetType() >= 0)){
         fg->runAssetSearch(std::cout, p, opt, t_total);
       } else {
         fg->run(std::cout, p, opt, t_total);

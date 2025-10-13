@@ -317,6 +317,9 @@ class BaseAsset {
     [[nodiscard]] virtual FlatZincSpace& flatZincSpace() const {
         return _originalFlatZincSpace;
     }
+    [[nodiscard]] FlatZincSpace* curFlatZincSpace() const {
+        return _curFlatZincSpace;
+    }
     [[nodiscard]] virtual BaseEngine* engine() const {
         return nullptr;
     }
@@ -393,6 +396,8 @@ class DFSAsset : public BaseAsset {
         void setEngine(BaseEngine* se) override { this->_engine = se; }
 
         [[nodiscard]] BaseEngine* engine() const override { return _engine; }
+
+        [[nodiscard]] Search::Options searchOptions() const override { return _searchOptions; }
 
         SearchController& _searchController;
 

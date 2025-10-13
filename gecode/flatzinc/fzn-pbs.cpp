@@ -62,13 +62,16 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
         // Critical Section
         const bool success = _incumbentSolution->compare_exchange_strong(expected, sol);
         assert(success);
+        if (!sol->viol_vars.empty()) {
+            _ostream << "%% Violation: " << sol->total_viol << std::endl;
+        }
         if (success){
             _allBestSolutions->emplace_back(std::dynamic_pointer_cast<Gecode::Space>(sol));
             if (_flatZincOptions.allSolutions()){
                 sol->print(_ostream, _printer);
                 _ostream << "----------" << std::endl;
             }
-            if (_method == FlatZincSpace::SAT){
+            if (sol->method() == FlatZincSpace::SAT){
                 _optimumFound->store(true);
             }
             if (asset_id < _assets.size()) {
@@ -395,23 +398,26 @@ void SearchController::run() {
         // Use default user asset in case no solution was found.
         BaseEngine* se = _assets[_finishedAsset > _assets.size() ? 0 : _finishedAsset]->engine();
 
-        if (sol) {
+        bool hasViolations = sol == nullptr ? true : sol->total_viol.val();
+
+        if (!hasViolations) {
             sol->print(_ostream, _printer);
             _ostream << "----------" << std::endl;
         }
         if (se && !se->stopped()) {
+            assert(!hasViolations);
             if (sol) {
-            _ostream << "==========" << std::endl;
+                _ostream << "==========" << std::endl;
             } else {
-            _ostream << "=====UNSATISFIABLE=====" << std::endl;
+                _ostream << "=====UNSATISFIABLE=====" << std::endl;
             }
         }
-        else if (!sol) {
+        else if (hasViolations) {
             _ostream << "=====UNKNOWN=====" << std::endl;
         }
     }
     // If print Statistics:
-    if (_flatZincOptions.mode() == SM_STAT) {
+    if (_finishedAsset < _assets.size() && _flatZincOptions.mode() == SM_STAT) {
         solutionStatistics(_assets[_finishedAsset].get(), _timerTotal, _finishedAsset);
     }
 
@@ -454,7 +460,7 @@ void AssetExecutor::runSearch(){
 
         // If a solution is found, then all assets can stop their search
         // As the problem has been satisfied.
-        if (control._method == FlatZincSpace::SAT){
+        if (sol->method() == FlatZincSpace::SAT){
             control._solutionMutex.lock();
             if (control._optimumFound->load()){
                 control._solutionMutex.unlock();
@@ -495,19 +501,19 @@ void AssetExecutor::runSearch(){
                 fopt.restart_base(1.5);
                 fopt.restart_scale(250);
                 searchOptions.cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(fopt));
-                auto* upd_se = new RBSEngine(&(asset->flatZincSpace()), searchOptions);
+                auto* upd_se = new RBSEngine(asset->curFlatZincSpace(), searchOptions);
                 asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                 engine = upd_se;
             } else {
                 if (control._method == FlatZincSpace::SAT)
                 {
-                    auto* upd_se = new DFSEngine(&(asset->flatZincSpace()), searchOptions);
+                    auto* upd_se = new DFSEngine(asset->curFlatZincSpace(), searchOptions);
                     asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                     engine = upd_se;
                 }
                 else
                 {
-                    auto* upd_se = new BABEngine(&(asset->flatZincSpace()), searchOptions);
+                    auto* upd_se = new BABEngine(asset->curFlatZincSpace(), searchOptions);
                     asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                     engine = upd_se;
                 }

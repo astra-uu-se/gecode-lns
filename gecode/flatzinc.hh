@@ -842,7 +842,6 @@ namespace Gecode { namespace FlatZinc {
     void createBranchers(Printer& p, AST::Node* ann, FlatZincOptions& opt, bool ignoreUnknown, BranchModifier& bm, std::ostream& err = std::cerr);
 
     void deletePBSArrays();
-    void initIncumbentSolution(std::shared_ptr<IncumbentSolution>& solution);
     void populateLnsVars(const std::vector<ConExpr*>&);
     void populateCombinedObjective(const FlatZincOptions &opt);
     [[nodiscard]] int compareObjectiveValue(const FlatZincSpace& other) const;

@@ -43,7 +43,7 @@ BranchModifier::BranchModifier(bool do_opposite_branching, bool use_pbs_branchin
 // Destructor
 BranchModifier::~BranchModifier() {}
 
-void BranchModifier::sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVarArray iv){
+void BranchModifier::sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVarArray iv, Gecode::BoolVarArray bv) {
     // Add args and variables in struct.
     // Sort struct given sorting method.
     // Recreate the annotation with sorted variables.
@@ -59,13 +59,21 @@ void BranchModifier::sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVa
             switch (sortBy){
                 case FlatAnnSortBy::AFC:
                     for (unsigned long int j = 0; j < vars.size(); j++){
-                        if (!vars[j]->isInt()) avg_unit += iv[vars[j]->getIntVar()].afc();
+                        if (vars[j]->isIntVar()) {
+                            avg_unit += iv[vars[j]->getIntVar()].afc();
+                        } else if (vars[j]->isBoolVar()) {
+                            avg_unit += bv[vars[j]->getBoolVar()].afc();
+                        }
                     }
                     avg_unit /= vars.size();
                     break;
                 case FlatAnnSortBy::SMALLEST:
                     for (unsigned long int j = 0; j < vars.size(); j++){
-                        if (!vars[j]->isInt()) avg_unit += iv[vars[j]->getIntVar()].size();
+                        if (vars[j]->isIntVar()) {
+                            avg_unit += iv[vars[j]->getIntVar()].size();
+                        } else if (vars[j]->isBoolVar()) {
+                            avg_unit += bv[vars[j]->getBoolVar()].afc();
+                        }
                     }
                     avg_unit /= vars.size();
                     break;
@@ -97,17 +105,18 @@ void BranchModifier::sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVa
             
             switch (sortBy){
                 case FlatAnnSortBy::AFC:
-                    std::sort(vars.begin(), vars.end(), [iv](AST::Node* a, AST::Node* b) {
+                    std::sort(vars.begin(), vars.end(), [iv, bv](AST::Node* a, AST::Node* b) {
                     // Both a and b are IntVar, compare their afc values
-                        if (!a->isInt() && !b->isInt())
-                            return iv[a->getIntVar()].afc() > iv[b->getIntVar()].afc();
+                        if ((a->isIntVar() || a->isBoolVar()) && (b->isIntVar() || b->isBoolVar())) {
+                            return (a->isIntVar() ? iv[a->getIntVar()].afc() : bv[a->getBoolVar()].afc()) > (b->isIntVar() ? iv[b->getIntVar()].afc() : bv[b->getBoolVar()].afc());
+                        }
 
                         // Only a is IntVar, a comes first
-                        if (!a->isInt())
+                        if (a->isIntVar() || b->isBoolVar())
                             return true;
 
                         // Only b is IntVar, b comes first
-                        if (!b->isInt())
+                        if (b->isIntVar() || b->isBoolVar())
                             return false;
 
                         // Neither a nor b is IntVar, doesn't matter which comes first
@@ -115,17 +124,18 @@ void BranchModifier::sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVa
                     });
                     break;
                 case FlatAnnSortBy::SMALLEST:
-                    std::sort(vars.begin(), vars.end(), [iv](AST::Node* a, AST::Node* b) {
+                    std::sort(vars.begin(), vars.end(), [iv, bv](AST::Node* a, AST::Node* b) {
                         // Both a and b are IntVar, compare their domain sizes
-                            if (!a->isInt() && !b->isInt())
-                                return iv[a->getIntVar()].size() < iv[b->getIntVar()].size();
+                            if ((a->isIntVar() || a->isBoolVar()) && (b->isIntVar() || b->isBoolVar())) {
+                                return (a->isIntVar() ? iv[a->getIntVar()].size() : bv[a->getBoolVar()].size() ) < (b->isIntVar() ? iv[b->getIntVar()].size() : bv[b->getBoolVar()].size());
+                            }
 
                             // Only a is IntVar, a comes first
-                            if (!a->isInt())
+                            if (a->isIntVar() || a->isBoolVar())
                                 return true;
 
                             // Only b is IntVar, b comes first
-                            if (!b->isInt())
+                            if (b->isIntVar() || b->isBoolVar())
                                 return false;
 
                             // Neither a nor b is IntVar, doesn't matter which comes first

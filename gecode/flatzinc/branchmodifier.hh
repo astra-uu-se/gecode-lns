@@ -85,7 +85,7 @@ public:
     void SVRLNSBranching(std::vector<ConExpr*> constraints);
     
     // Sort the flat annotation based on the selected sorting method.
-    void sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVarArray iv);
+    void sortFlatAnn(std::vector<AST::Node*>& flatAnn, Gecode::IntVarArray iv, BoolVarArray bv);
     
     
 #ifdef GECODE_HAS_SET_VARS

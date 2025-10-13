@@ -48,6 +48,8 @@
 #endif
 #include <gecode/flatzinc.hh>
 
+#include "fzn-pbs.hh"
+
 namespace Gecode { namespace FlatZinc {
 
   Registry& registry(void) {
@@ -297,7 +299,7 @@ namespace Gecode { namespace FlatZinc {
       p_int_lin_CMP_reif(s, IRT_NQ, RM_IMP, ce, ann);
     }
     void p_int_lin_le(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
-      if (s.soften_constraints && ann->hasAtom("soften")) {
+      if (s.soften_constraints && (ann == nullptr || !ann->hasAtom("defines_var"))) {
         // std::cout << "%% Detected soft constraint" << std::endl;
         //TODO: change space to subsuming home.
         if (s.use_self_subsuming && !ann->hasAtom("onlyViol")){
@@ -516,6 +518,14 @@ namespace Gecode { namespace FlatZinc {
       min(s, x0, x1, x2, s.ann2ipl(ann));
     }
     void p_int_max(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
+      if (s.use_self_subsuming && !ce.ann->hasAtom("defines_var")) {
+        IntVar x0 = s.arg2IntVar(ce[0]);
+        IntVar x1 = s.arg2IntVar(ce[1]);
+        IntVar x2 = s.arg2IntVar(ce[2]);
+        max(PropagatorGroup::soft_subsume(s), x0, x1, x2, s.ann2ipl(ann));
+        s.viol_vars.push_back(expr(s, abs(x2 - max(x0, x1))));
+        return;
+      }
       IntVar x0 = s.arg2IntVar(ce[0]);
       IntVar x1 = s.arg2IntVar(ce[1]);
       IntVar x2 = s.arg2IntVar(ce[2]);
@@ -669,6 +679,16 @@ namespace Gecode { namespace FlatZinc {
     }
     void p_array_bool_clause(FlatZincSpace& s, const ConExpr& ce,
                              AST::Node* ann) {
+      if (s.soften_constraints && !ce.ann->hasAtom("defines_var")) {
+        BoolVarArgs bvp = s.arg2boolvarargs(ce[0]);
+        BoolVarArgs bvn = s.arg2boolvarargs(ce[1]);
+        clause(PropagatorGroup::soft_subsume(s), BOT_OR, bvp, bvn, 1, s.ann2ipl(ann));
+
+        BoolVar satisfied(s, 0, 1);
+        clause(s, BOT_OR, bvp, bvn, satisfied);
+        s.viol_vars.push_back(expr(s, 1 - satisfied));
+        return;
+      }
       BoolVarArgs bvp = s.arg2boolvarargs(ce[0]);
       BoolVarArgs bvn = s.arg2boolvarargs(ce[1]);
       clause(s, BOT_OR, bvp, bvn, 1, s.ann2ipl(ann));
@@ -1125,7 +1145,7 @@ namespace Gecode { namespace FlatZinc {
     void p_global_cardinality_low_up_closed(FlatZincSpace& s,
                                             const ConExpr& ce,
                                             AST::Node* ann) {
-      if (s.soften_constraints && ann->hasAtom("soften")) {
+      if (s.soften_constraints && (ann == nullptr || ann->hasAtom("soften"))) {
         // std::cout << "%% Detected soft gcc_low_up_closed" << std::endl;
 
         IntVarArgs x = s.arg2intvarargs(ce[0]);
@@ -1574,6 +1594,21 @@ namespace Gecode { namespace FlatZinc {
       IntVarArgs x = s.arg2intvarargs(ce[0]);
       IntArgs p = s.arg2intargs(ce[1]);
       unshare(s,x);
+      if (s.soften_constraints && (ce.ann == nullptr || ce.ann->hasAtom("soften"))) {
+        IntVarArgs viols;
+        for (int i = 0; i < x.size() - 1; ++i) {
+          for (int j = 0; j < x.size(); ++j) {
+            BoolVar s1e2(s, 0, 1);
+            BoolVar s2e1(s, 0, 0);
+            rel(s, x[i], IRT_LE, expr(s, x[j] + p[j]), s1e2);
+            rel(s, x[j], IRT_LE, expr(s, x[i] + p[i]), s2e1);
+            viols << expr(s, s1e2 * s2e1);
+          }
+        }
+        s.viol_vars.push_back(expr(s, sum(viols)));
+        unary(PropagatorGroup::soft_subsume(s), x, p);
+        return;
+      }
       unary(s, x, p);
     }
 

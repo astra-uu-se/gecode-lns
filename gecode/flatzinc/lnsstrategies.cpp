@@ -92,23 +92,27 @@ bool shouldPerformLns(const FlatZincSpace& fzs, const MetaInfo& mi) {
          hasLast(fzs, mi));
 }
 
-std::vector<std::pair<VAR_TYPE, int>> createLnsVars(const FlatZincSpace& fzs) {
+std::vector<std::pair<VAR_TYPE, int>> createLnsVars(const FlatZincSpace& fzs, const FlatZincSpace& last) {
   vector<std::pair<VAR_TYPE, int>> lnsVars;
   lnsVars.reserve(fzs.hasLnsVars() ? fzs.numLnsVars() : fzs.numVars());
   const int numBoolVars = fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size();
-  for (size_t i = 0; i < numBoolVars; ++i) {
-    lnsVars.emplace_back(VAR_BOOL, i);
+  for (int i = 0; i < numBoolVars; ++i) {
+    if (lnsBoolVarConst(last, i).assigned()) {
+      lnsVars.emplace_back(VAR_BOOL, i);
+    }
   }
   const int numIntVars = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
-  for (size_t i = 0; i < numIntVars; ++i) {
-    lnsVars.emplace_back(VAR_INT, i);
+  for (int i = 0; i < numIntVars; ++i) {
+    if (lnsIntVarConst(last, i).assigned()) {
+      lnsVars.emplace_back(VAR_INT, i);
+    }
   }
   const int numFloatVars = fzs.hasLnsVars() ? fzs.fv_lns.size() : fzs.fv.size();
-  for (size_t i = 0; i < numFloatVars; ++i) {
+  for (int i = 0; i < numFloatVars; ++i) {
     lnsVars.emplace_back(VAR_FLOAT, i);
   }
   const int numSetVars = fzs.hasLnsVars() ? fzs.sv_lns.size() : fzs.sv.size();
-  for (size_t i = 0; i < numSetVars; ++i) {
+  for (int i = 0; i < numSetVars; ++i) {
     lnsVars.emplace_back(VAR_SET_OF_VAR, i);
   }
   return lnsVars;
@@ -147,13 +151,8 @@ void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, const std::pair<VAR_T
 
 
 bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace& last) {
-  const bool minimizing = fzs.method() == FlatZincSpace::MIN;
-  const int obj = minimizing
-    ? last.iv[fzs.optVar()].min()
-    : last.iv[fzs.optVar()].max();
-  const bool isBetter = minimizing
-    ? obj < *fzs.last_best_objective
-    : obj > *fzs.last_best_objective;
+  const int obj = last.combined_obj.val();
+  const bool isBetter = obj < *fzs.last_best_objective;
   if (isBetter) {
     *fzs.last_best_objective = obj;
     *fzs.last_best_restart = mi.restart();
@@ -201,7 +200,7 @@ bool LNSstrategies::random(FlatZincSpace& fzs, const MetaInfo& mi) {
   }
   updateLastBest(fzs, mi, *last);
 
-  const auto lnsVars = createLnsVars(fzs);
+  const auto lnsVars = createLnsVars(fzs, *last);
 
   for (const auto& lnsVar : lnsVars) {
     if (fzs.random()(99U) <= fzs.freezePercent()) {
@@ -221,7 +220,7 @@ bool LNSstrategies::propagationGuided(FlatZincSpace& fzs, const MetaInfo& mi, un
     return true;
   }
   updateLastBest(fzs, mi, *last);
-  const auto lnsVars = createLnsVars(fzs);
+  const auto lnsVars = createLnsVars(fzs, *last);
 
   size_t limit = floor(double(lnsVars.size()) * (double(fzs.freezePercent()) / 100.0));
   size_t vars_frozen = 0;
@@ -284,7 +283,7 @@ bool LNSstrategies::reversedPropagationGuided(FlatZincSpace& fzs, const MetaInfo
   }
   updateLastBest(fzs, mi, *last);
 
-  const auto lnsVars = createLnsVars(fzs);
+  const auto lnsVars = createLnsVars(fzs, *last);
   int limit = floor(static_cast<double>(lnsVars.size()) * (static_cast<double>(fzs.freezePercent()) / 100.0));
   size_t vars_frozen = 0;
   // Set up the variables for the propagation guided LNS.
@@ -381,7 +380,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
   const bool foundBetter = updateLastBest(fzs, mi, *last);
 
   // Use a vector of indices, select variables from it.
-  const auto lnsVars = createLnsVars(fzs);
+  const auto lnsVars = createLnsVars(fzs, *last);
   std::vector<int> indices(lnsVars.size());
   std::iota(indices.begin(), indices.end(), 0);
 
@@ -398,23 +397,23 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
     fzs.ciglns_info->scores.resize(lnsVars.size());
     fzs.ciglns_info->bound_diff_sum = 0.0;
     fzs.ciglns_info->r = 0.0;
-    
+
     for (unsigned int dive = 0; dive < dives; dive++){
       // Clone the space to make a dive possible.
       auto* fzs_clone = dynamic_cast<FlatZinc::FlatZincSpace*>(fzs.clone());
       // Create uniformly randomized permutations of the variables.
-      
+
       // Depending on opt method, calculate the bound differences after fixing the variables.
       for (int i = 0; i < static_cast<int>(lnsVars.size()); ++i){
         std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
 
-        const int oldBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
+        const int oldBound = getBound(fzs_clone->combined_obj, fzs.method() == FlatZincSpace::MIN);
         // The variables stored in vars.intVar are those variables found in iv_lns_default.
         const int lnsFreezeVar = indices[i];
         freeze(*fzs_clone, *last, lnsVars[lnsFreezeVar]);
         fzs_clone->status();
 
-        const int newBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
+        const int newBound = getBound(fzs_clone->combined_obj, fzs.method() == FlatZincSpace::MIN);
         // Corresponds to (3) in the paper:
         // if minimising, then newBound >= oldBound. If newBound is high, then impact is high
         // else, maximising and oldBound >= newBound. If newBound is low, then impact is high
@@ -436,7 +435,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
     // Compute the score for each variable.
     for (size_t i = 0; i < lnsVars.size(); ++i){
       // corresponds to (7) in the paper:
-      const double score = (alpha * fzs.ciglns_info->bound_differences[i]) + 
+      const double score = (alpha * fzs.ciglns_info->bound_differences[i]) +
                            ((1 - alpha) * static_cast<double>(lnsVars.size()) * fzs.ciglns_info->bound_diff_sum);
       fzs.ciglns_info->r += score;
       fzs.ciglns_info->scores[i] = score;
@@ -456,7 +455,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
     double v = r_local <= 0
              ? 0
              : fzs.random()(static_cast<int>(floor(r_local)));
-    
+
     int best_index = -1;
     double best_score = 0;
     for (int i = 0; i < static_cast<int>(indices.size()); ++i) {
@@ -476,7 +475,7 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
     std::swap(indices[best_index], indices.back());
     indices.pop_back();
   }
-  
+
   // freeze the chosen variables.
   for (const int lnsIndex : indices) {
     freeze(fzs, *last, lnsVars[lnsIndex]);
@@ -489,7 +488,7 @@ int selectRandomBestIndex(FlatZincSpace& fzs, std::vector<std::pair<VAR_TYPE, in
 
   int best_impact = -1;
   int best_index = -1;
-  
+
   for (int i = 0; i < std::min<int>(n, static_cast<int>(lnsVars.size())); ++i) {
     std::swap(lnsVars[i], lnsVars[randInInterval(i, static_cast<int>(lnsVars.size()), fzs.random())]);
     const int type = typeToInt(lnsVars[i].first);
@@ -532,7 +531,7 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
   }
   const bool foundBetter = updateLastBest(fzs, mi, *last);
 
-  auto lnsVars = createLnsVars(fzs);
+  auto lnsVars = createLnsVars(fzs, *last);
   const std::array<int, 4> lnsSizes{
   fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size(),
   fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size(),
@@ -553,14 +552,14 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
       fzs.variable_impacts->at(t).resize(lnsSizes[t]);
     }
 
-    const int oldBound = getBound(last->iv[fzs.optVar()], fzs.method() == FlatZincSpace::MIN);
+    const int oldBound = getBound(last->combined_obj, fzs.method() == FlatZincSpace::MIN);
     for (const auto& lnsVar : lnsVars) {
       auto* fzs_clone = dynamic_cast<FlatZincSpace*>(fzs.clone());
 
       freeze(*fzs_clone, *last, lnsVar);
       fzs_clone->status();
 
-      const int newBound = getBound(fzs_clone->iv[fzs_clone->optVar()], fzs.method() == FlatZincSpace::MIN);
+      const int newBound = getBound(fzs_clone->combined_obj, fzs.method() == FlatZincSpace::MIN);
       const int impact = std::abs(newBound - oldBound);
       fzs.variable_impacts->at(typeToInt(lnsVar.first)).at(lnsVar.second) = impact;
       delete fzs_clone;
