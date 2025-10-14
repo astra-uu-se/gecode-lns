@@ -529,11 +529,11 @@ void AssetExecutor::runSearch(){
 
 // Go through and run each asset in the round-robin for some fixed amount of restarts. Store the number of sols for each asset, best asset keeps on running until search finishes.
 void RoundRobinLNSAsset::run(){
+    bool curBestViol = std::numeric_limits<int>::max();
     int curBestObj = control._method == FlatZincSpace::MAX ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
 
     const int optVar = _roundRobinAssets[0]->flatZincSpace().optVar();
     Support::Timer t_solve;
-    const bool printAll = _flatZincOptions.allSolutions();
 
     for (long unsigned int i = 0; i < _roundRobinAssets.size(); i++){
         // Do one run of the asset and decide which asset is the best.
@@ -544,18 +544,16 @@ void RoundRobinLNSAsset::run(){
 
         control.updateBestSolution(sol, _assetId);
 
+        const int curViol = sol->viol_vars.empty() ? 0 : sol->total_viol.val();
         const int curObj = sol->iv[optVar].val();
-        if (control._method == FlatZincSpace::MAX){
-            if (curObj > curBestObj){
-                curBestObj = curObj;
-                best_asset = std::move(_roundRobinAssets[i]);
-            }
-        }
-        else {
-            if (curObj < curBestObj){
-                curBestObj = curObj;
-                best_asset = std::move(_roundRobinAssets[i]);
-            }
+        const bool isBetterSolution =
+            curViol < curBestViol ||
+            (curViol == curBestViol && control._method != FlatZincSpace::SAT &&
+            (control._method == FlatZincSpace::MAX ? curObj > curBestObj : curObj < curBestObj));
+        if (isBetterSolution){
+            curBestViol = curViol;
+            curBestObj = curObj;
+            best_asset = std::move(_roundRobinAssets[i]);
         }
 
         if (_flatZincOptions.mode() == SM_STAT){
