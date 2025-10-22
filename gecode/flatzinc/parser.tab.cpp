@@ -589,7 +589,7 @@ namespace Gecode { namespace FlatZinc {
     }
 
     if (fzs == NULL) {
-      fzs = new FlatZincSpace(rnd, opt);
+      fzs = new FlatZincSpace(rnd);
     }
     ParserState pp(data, sbuf.st_size, err, fzs);
 #else
@@ -623,7 +623,7 @@ namespace Gecode { namespace FlatZinc {
                            istreambuf_iterator<char>());
 
     if (fzs == NULL) {
-      fzs = new FlatZincSpace(rnd, opt);
+      fzs = new FlatZincSpace(rnd);
     }
     ParserState pp(s, err, fzs);
     yylex_init(&pp.yyscanner);

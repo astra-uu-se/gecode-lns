@@ -17,6 +17,7 @@
 #include <sstream>
 #include <limits>
 #include <unordered_set>
+#include <bits/random.h>
 
 using namespace std;
 using namespace Gecode;
@@ -25,43 +26,15 @@ using namespace Gecode::FlatZinc;
 class SearchController;  // Declaration
 class BaseAsset;  // Declaration
 
-enum class VarType { Int, Bool, };
+struct AssetData {
+    FlatZincSpace::AssetType type;
+    bool useSelfSubsumingPropagators;
+    bool useDependencyCuratedLns;
+};
+
+enum class VarType { Int, Bool };
 
 enum class FlatZincVarArray { iv, iv_aux, bv, bv_aux, };
-
-enum class AssetType {
-        // SHAVING, //< Shaving asset.
-        USER, //< First asset is the user asset.
-        LNS_USER, //< Second asset is the user asset with LNS.
-        PGLNS, //< Propagation guided LNS.
-        CIGLNS, //< Cost impact guided LNS.
-        OBJRELLNS, //< Objective relaxation LNS.
-        SVRLNS, //< Static variable relationship LNS.
-        REVPGLNS, //< Reverse propagation guided LNS.
-        PB_USER, //< Prioritized branching user asset.
-        USER_OPPOSITE,  //< The user asset with opposite branching.
-        SHAVING, //< Shaving asset.
-        DUMMY //< Dummy asset.
-    };
-
-static FlatZincSpace::LNSType assetToLns(AssetType t) {
-    switch (t) {
-        case AssetType::PGLNS:
-            return FlatZincSpace::LNSType::PG;
-        case AssetType::REVPGLNS:
-            return FlatZincSpace::LNSType::rPG;
-        case AssetType::CIGLNS:
-            return FlatZincSpace::LNSType::CIG;
-        case AssetType::SVRLNS:
-            return FlatZincSpace::LNSType::SVR;
-        case AssetType::OBJRELLNS:
-            return FlatZincSpace::LNSType::OBJREL;
-        case AssetType::LNS_USER:
-            return FlatZincSpace::LNSType::RANDOM;
-        default:
-            return FlatZincSpace::LNSType::NONE;
-    }
-}
 
 struct VarDescription {
     VarType type;
@@ -258,6 +231,55 @@ public:
                   });
     }
 };
+/// Multi armed bandit
+class Bandit {
+protected:
+    int _num_actions;
+    double _epsilon;
+    double _learning_rate;
+    std::vector<double> _q;
+    std::vector<double> _preferences;
+    std::vector<double> _true_values;
+    std::vector<int> _nt;
+    std::vector<double> _UCB_values;
+    std::vector<double> _q_temperature;
+    std::vector<double> _pii;
+    double _avg_reward{0};
+    int _best_action{-1};
+    int generateAction(std::vector<double>& weights);
+    void updateBestAction(long action);
+
+public:
+    Bandit(int num_actions, double epsilon, double learning_rate);
+
+    virtual ~Bandit() = default;
+    void update_q(double r, int a);
+    void update_q_n(double r, int a, int n);
+    void update_avg_reward(int n, double r);
+    void update_action_preferences(double r, int a);
+    [[nodiscard]] int get_best_action() const;
+    int take_action();
+    int UCB(double beta = 0.1);
+    int Boltzmann_exploration(double tau = 0.1);
+    int gradient_bandit_action();
+    virtual double sample_return(int a) = 0;
+
+    void single_run(unsigned int run_length);
+    void single_run_UCB(unsigned int run_length, double c = 0.1);
+    void single_run_Boltzmann(unsigned int run_length, double tau = 0.1);
+    void single_run_gradient(unsigned int run_length);
+};
+
+class NormalBandit : public Bandit {
+private:
+    double _var;
+
+public:
+    explicit NormalBandit(int num_actions, double epsilon = 0.1, double learning_rate = 0.1, double var = 1.0, double q_max = 0.0);
+
+    double sample_return(int a) override;
+};
+
 
 class AssetExecutor : public Gecode::Support::Runnable {
     /// The common controller for running tests
@@ -291,23 +313,27 @@ class BaseAsset {
     FlatZincOptions& _flatZincOptions;
     StatusStatistics _statusStatistics;
     unsigned int _assetId;
-    AssetType _assetType;
-    unsigned int _copyRecomputationDistance;
-    unsigned int _adaptiveRecomputationDistance;
-    unsigned int _numThreads;
+    int _banditArmId;
+    FlatZincSpace::AssetType _assetType;
+    bool _useDependencyCuratedLns;
+    bool _useSelfSubsumingPropagators;
 
     unsigned int _numPropagators{0};
     double _solveTime{0.0};
+    size_t _numSolutions{0};
     string _assetStr{};
 
     BaseAsset(FlatZincSpace& flatZincSpace, FlatZincSpace* curFlatZincSpace, FlatZincOptions& flatZincOptions, unsigned int assetId,
-        AssetType assetType, unsigned int copyRecomputationDistance, unsigned int adaptiveRecomputationDistance, unsigned int numThreads);
+        FlatZincSpace::AssetType, bool useDependencyCuratedLns = true, bool useSelfSubsumingPropegators = true);
 
-    Search::Options generateSearchOptions(FlatZincSpace&, Search::Stop*) const;
+    std::shared_ptr<Search::Options> generateSearchOptions(FlatZincSpace&, Search::Stop*) const;
 
-    public:
+    [[nodiscard]] bool sortFlatAnnotations() const;
+
+
+public:
     BaseAsset(FlatZincSpace& flatZincSpace, FlatZincOptions& flatZincOptions) :
-    BaseAsset(flatZincSpace, nullptr, flatZincOptions, std::numeric_limits<unsigned int>::max(), AssetType::DUMMY, 0, 0, 0) {}
+    BaseAsset(flatZincSpace, nullptr, flatZincOptions, 0, FlatZincSpace::AssetType::DUMMY) {}
     virtual ~BaseAsset() {
         delete _curFlatZincSpace;
         _curFlatZincSpace = nullptr;
@@ -335,19 +361,18 @@ class BaseAsset {
     [[nodiscard]] virtual long unsigned int shavingStart() const {
         return 0;
     }
-    [[nodiscard]] virtual FlatZincSpace::LNSType lnsType() const {
-        return assetToLns(_assetType);
-    }
     [[nodiscard]] virtual string assetTypeStr() const {
         return _assetStr;
     }
-    [[nodiscard]] virtual Search::Options searchOptions() const {
+    [[nodiscard]] virtual Search::Options& searchOptions() const {
         throw std::runtime_error("getSearchOptions not supported on this asset type.");
     }
-    [[nodiscard]] virtual AssetType assetType() const {
+    [[nodiscard]] virtual FlatZincSpace::AssetType assetType() const {
         return _assetType;
     }
-
+    [[nodiscard]] virtual int numThreads() const {
+        return 1;
+    }
     virtual void setNumPropagators(unsigned int numPropagators) {
         _numPropagators = numPropagators;
     }
@@ -359,19 +384,25 @@ class BaseAsset {
         _assetStr = assetStr;
     }
     virtual void setEngine(BaseEngine*) {}
-    virtual void setSearchOptions (Search::Options so) { throw std::runtime_error("setSearchOptions not supported on this asset type."); }
 
     virtual void increaseSolveTime(double time) {
         _solveTime += time;
     }
+    [[nodiscard]] bool oppositeBranching() const;
+    [[nodiscard]] bool pbsBranching() const;
+    [[nodiscard]] virtual int banditArmId() const { return -1; };
+    virtual void updateBanditArmId() {};
+    [[nodiscard]] virtual bool runNextRound() const;
+    virtual void updateEngine() {};
+    [[nodiscard]] size_t numSolutions() const { return _numSolutions; }
+    size_t incrSolutions(size_t increment = 1) { return _numSolutions += increment; }
 };
 
 class DFSAsset : public BaseAsset {
     public:
         DFSAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
-            unsigned int assetId, AssetType assetType, bool oppositeBranching, bool pbsBranching,
-            bool sortFlatAnn, unsigned int copyRecomputationDistance, unsigned int adaptiveRecomputationDistance,
-            unsigned int numThreads);
+            unsigned int assetId, FlatZincSpace::AssetType assetType, unsigned int numThreads,
+            bool useSelfSubsumingPropagators = true);
 
     ~DFSAsset() override {
             delete _engine;
@@ -380,9 +411,10 @@ class DFSAsset : public BaseAsset {
                 delete _branchModifier.pbs_variable_branchings;
                 _branchModifier.pbs_variable_branchings = nullptr;
             }
-            delete _searchOptions.stop;
-            delete _searchOptions.tracer;
-            delete _searchOptions.cutoff;
+            if (_searchOptions != nullptr) {
+                delete _searchOptions->stop;
+                delete _searchOptions->tracer;
+            }
         }
 
         void run() override {Gecode::Support::Thread::run(executor);};
@@ -397,15 +429,16 @@ class DFSAsset : public BaseAsset {
 
         [[nodiscard]] BaseEngine* engine() const override { return _engine; }
 
-        [[nodiscard]] Search::Options searchOptions() const override { return _searchOptions; }
+        [[nodiscard]] Search::Options& searchOptions() const override { return *_searchOptions; }
 
         SearchController& _searchController;
 
     private:
+        unsigned int _numThreads;
         BranchModifier _branchModifier;
         AssetExecutor* executor;
 
-        Search::Options _searchOptions;
+        std::shared_ptr<Search::Options> _searchOptions{nullptr};
         BaseEngine* _engine{nullptr};
         long unsigned int _shavingStart{0};
 };
@@ -413,9 +446,9 @@ class DFSAsset : public BaseAsset {
 class LNSAsset : public BaseAsset {
     public:
         LNSAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
-            unsigned int assetId, AssetType assetType, bool oppositeBranching,
-            bool pbsBranching, bool sortFlatAnnotations, unsigned int copyRecompuatationDistance,
-            unsigned int adaptiveRecomputationDistance, unsigned int numThreads, RestartMode restartMode, double restartBase, unsigned int restartScale);
+            unsigned int assetId, FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators = true,
+            bool useDependencyCuratedLns = true, RestartMode restartMode = RM_LUBY, double restartBase = 1.5,
+            unsigned int restartScale = 250);
 
         ~LNSAsset() override {
             delete _engine;
@@ -425,8 +458,10 @@ class LNSAsset : public BaseAsset {
                 _branchModifier.pbs_variable_branchings = nullptr;
             }
             // delete executor; executor = nullptr;
-            delete _searchOptions.stop;
-            delete _searchOptions.tracer;
+            if (_searchOptions != nullptr) {
+                delete _searchOptions->stop;
+                delete _searchOptions->tracer;
+            }
         };
 
         void run() override {Gecode::Support::Thread::run(executor);};
@@ -434,12 +469,10 @@ class LNSAsset : public BaseAsset {
         [[nodiscard]] BaseEngine* engine() const override { return _engine; }
         [[nodiscard]] long unsigned int shavingStart() const override { return _shavingStart; }
         [[nodiscard]] AssetExecutor* getExecutor() const { return executor; }
-        [[nodiscard]] Search::Options searchOptions() const override { return _searchOptions; }
+        [[nodiscard]] Search::Options& searchOptions() const override { return *_searchOptions; }
 
         void setShavingStart(long unsigned int start) override { _shavingStart = start; }
         void setEngine(BaseEngine* engine) override { this->_engine = dynamic_cast<RBSEngine*>(engine); }
-        void setSearchOptions(Search::Options options) override { this->_searchOptions = options; }
-        
 
         SearchController& _searchController;
 
@@ -449,15 +482,68 @@ class LNSAsset : public BaseAsset {
         double _restartBase;
         unsigned int _restartScale;
         AssetExecutor* executor;
-        Search::Options _searchOptions;
+        std::shared_ptr<Search::Options> _searchOptions{nullptr};
+        RBSEngine* _engine{nullptr};
+    long unsigned int _shavingStart{0};
+};
+
+class BanditArmAsset : public BaseAsset {
+public:
+    BanditArmAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
+        unsigned int assetId, RestartMode restartMode = RM_LUBY, double restartBase = 1.5,
+        unsigned int restartScale = 250);
+
+    ~BanditArmAsset() override {
+        delete _engine;
+        _engine = nullptr;
+        if (_branchModifier.pbs_variable_branchings != nullptr){
+            delete _branchModifier.pbs_variable_branchings;
+            _branchModifier.pbs_variable_branchings = nullptr;
+        }
+        // delete executor; executor = nullptr;
+        if (_searchOptions != nullptr) {
+            delete _searchOptions->stop;
+            delete _searchOptions->tracer;
+        }
+    };
+
+    void run() override {Gecode::Support::Thread::run(executor);};
+
+    [[nodiscard]] BaseEngine* engine() const override { return _engine; }
+    [[nodiscard]] long unsigned int shavingStart() const override { return _shavingStart; }
+    [[nodiscard]] AssetExecutor* getExecutor() const { return executor; }
+    [[nodiscard]] Search::Options& searchOptions() const override { return *_searchOptions; }
+
+    void setShavingStart(long unsigned int start) override { _shavingStart = start; }
+    void setEngine(BaseEngine* engine) override { this->_engine = dynamic_cast<RBSEngine*>(engine); }
+    void updateBanditArmId() override;
+    [[nodiscard]] bool runNextRound() const override;
+    void updateEngine() override;
+
+    SearchController& _searchController;
+
+
+private:
+    BranchModifier _branchModifier;
+    RestartMode _restartMode;
+    double _restartBase;
+    unsigned int _restartScale;
+    AssetExecutor* executor;
+    std::shared_ptr<Search::Options> _searchOptions{nullptr};
     RBSEngine* _engine{nullptr};
     long unsigned int _shavingStart{0};
+    Support::Timer _timeout;
+
+    const double defaultTime{5000};
+    std::optional<double> time;
+    size_t _banditTimestamp{std::numeric_limits<size_t>::max()};
+
 };
 
 class RoundRobinLNSAsset : public BaseAsset {
     public:
         RoundRobinLNSAsset(SearchController& control, FlatZincSpace& fg, FlatZincOptions& fopt,
-            unsigned int asset_id, unsigned int copyRecomputationDistance, unsigned int adaptiveRecompuatationDistance, unsigned int numThreads);
+            unsigned int asset_id);
         ;
         void run() override;
 
@@ -466,15 +552,13 @@ class RoundRobinLNSAsset : public BaseAsset {
         [[nodiscard]] StatusStatistics statusStatistics() const override { return best_asset->statusStatistics(); }
         [[nodiscard]] unsigned int numPropagators() const override { return best_asset->numPropagators(); }
         [[nodiscard]] double solveTime() const override { return best_asset->solveTime(); }
-        [[nodiscard]] FlatZincSpace::LNSType lnsType() const override { return best_asset->lnsType(); }
         [[nodiscard]] string assetTypeStr() const override { return best_asset->assetTypeStr(); }
-        [[nodiscard]] Search::Options searchOptions() const override { return best_asset->searchOptions(); }
-        [[nodiscard]] AssetType assetType() const override { return best_asset->assetType(); }
+        [[nodiscard]] Search::Options& searchOptions() const override { return best_asset->searchOptions(); }
+        [[nodiscard]] FlatZincSpace::AssetType assetType() const override { return best_asset->assetType(); }
 
         void setNumPropagators(unsigned int n_p) override { best_asset->setNumPropagators(n_p); }
         void setStatusStatistics(StatusStatistics statisStatistics) override { best_asset->setStatusStatistics(statisStatistics); }
         void setEngine(BaseEngine* se) override { best_asset->setEngine(se); }
-        void setSearchOptions(Search::Options so) override { best_asset->setSearchOptions(so); }
 
         void increaseSolveTime(double /*time*/) override {};
 
@@ -482,12 +566,12 @@ class RoundRobinLNSAsset : public BaseAsset {
 
     private:
         SearchController& control;
-        std::vector<std::unique_ptr<BaseAsset>> _roundRobinAssets;
+        std::vector<std::unique_ptr<LNSAsset>> _roundRobinAssets;
 };
 
 class ShavingAsset : public BaseAsset {
     public:
-        ShavingAsset(SearchController& control, FlatZincSpace& fg, FlatZincOptions& fopt, unsigned int assetId, AssetType assetType, int maxDomShavingSize, bool do_bounds_shaving, VariableSorter* sorter);
+        ShavingAsset(SearchController& control, FlatZincSpace& fg, FlatZincOptions& fopt, unsigned int assetId, FlatZincSpace::AssetType assetType, int maxDomShavingSize, bool do_bounds_shaving, VariableSorter* sorter);
 
     ~ShavingAsset() override {
             delete _sorter;
@@ -527,6 +611,16 @@ public:
     // Signals that a search for a thread is finished.
     void thread_done();
 
+    FlatZincSpace::AssetType assetType(int armId, bool lockMutex = true);
+
+    bool useSelfSubsumingPropagators(int armId, bool lockMutex = true);
+
+    bool useDependencyCuratedLns(int armId, bool lockMutex = true);
+
+    [[nodiscard]] size_t banditTimestamp() const {
+        return _banditTimestamp;
+    }
+
     // Variables
     // Intial search space.
     FlatZinc::FlatZincSpace* _flatZincSpace;
@@ -551,24 +645,39 @@ public:
     std::vector<bool> _assetSwappedEngine;
     /// Flag indicating that the final best solution has been found.
     std::shared_ptr<std::atomic<bool>> _optimumFound{std::make_shared<std::atomic<bool>>(false)};
-    // The best solution found given objective value.
-    std::shared_ptr<IncumbentSolution> _incumbentSolution;
+
     // The asset that finished the search and found the solution.
     unsigned int _finishedAsset{std::numeric_limits<unsigned int>::max()};
 
+    std::mutex _banditMutex;
+    std::unique_ptr<Bandit> _bandit;
+
     bool updateBestSolution(const std::shared_ptr<FlatZincSpace> &sol, unsigned int asset_id);
+
+    [[nodiscard]] int banditArmId(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const;
 
 private:
     // Waits for all threads to be done.
     void awaitRunnersCompleted();
     // Creates the asset used by the portfolio.
-    void createAsset(AssetType asset, unsigned int assetId, unsigned int threads = 1);
+    void createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, unsigned int numThreads = 1);
+
+    [[nodiscard]] bool isValidBanditArm(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators,
+                      bool useDependencyCuratedLns) const;
+
+    void updateMultiArmedBandit();
     // Sets up the asset used by the portfolio.
     void createAssets(double initTime);
     // Gives the statistics of the solution. (TODO: Make it possible to output from all engines and/or spaces)
     void solutionStatistics(BaseAsset* asset, Support::Timer& t_total, unsigned int finished_asset);
 
+    void createBanditArmAsset(unsigned int assetId);
+
     // Variables
+    std::vector<std::array<std::array<int, 2>, 2>> _banditArmIds;
+    std::vector<FlatZincSpace::AssetType> _armIdToAssetType;
+    std::vector<bool> _armIdToSelfSubsuming;
+    std::vector<bool> _armIdToCuratedDependency;
     /// Event for signaling that execution is done.
     Gecode::Support::Event _executionDoneEvent;
     /// The number of test runners that are to be set up.
@@ -577,6 +686,7 @@ private:
     std::atomic<bool> _executionDoneWaitStarted{false};
     // Literals that are forbidden in the search.
     std::vector<Literal> _forbiddenLiterals{0};
+    size_t _banditTimestamp{0};
     
 };
 

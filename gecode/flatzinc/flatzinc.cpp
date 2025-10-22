@@ -803,8 +803,9 @@ namespace Gecode { namespace FlatZinc {
     : Space(f),
       _initData(nullptr), _random(f._random),
       _solveAnnotations(nullptr),
-      _lnsType(f._lnsType),
+      _assetType(f._assetType),
       _lnsAnnType(f._lnsAnnType),
+      _objective_is_sum(f._objective_is_sum),
       default_iv_obj_relax_indices(f.default_iv_obj_relax_indices),
       last_best_restart(f.last_best_restart),
       last_best_objective(f.last_best_objective),
@@ -818,9 +819,9 @@ namespace Gecode { namespace FlatZinc {
       step(f.step),
 #endif
       _incumbentSolution(f._incumbentSolution),
-      optimum_found(f.optimum_found),
       needAuxVars(f.needAuxVars),
-      use_self_subsuming(f.use_self_subsuming),
+  use_dependency_curated_lns(f.use_dependency_curated_lns),
+      _use_soft_subsume(f._use_soft_subsume),
       soften_constraints(f.soften_constraints)
       {
       _optVar = f._optVar;
@@ -838,7 +839,6 @@ namespace Gecode { namespace FlatZinc {
       on_restart_iv.update(*this, f.on_restart_iv);
       on_restart_bv.update(*this, f.on_restart_bv);
       total_viol.update(*this, f.total_viol);
-      combined_obj.update(*this, f.combined_obj);
       viol_vars.reserve(f.viol_vars.size());
       for (int i = 0; i < f.viol_vars.size(); ++i) {
         viol_vars.emplace_back();
@@ -907,7 +907,7 @@ namespace Gecode { namespace FlatZinc {
 #endif
     }
 
-  FlatZincSpace::FlatZincSpace(Rnd& random, const FlatZincOptions& options)
+  FlatZincSpace::FlatZincSpace(Rnd& random)
   : _initData(new FlatZincSpaceInitData),
     intVarCount(-1),
     boolVarCount(-1),
@@ -918,7 +918,8 @@ namespace Gecode { namespace FlatZinc {
     _lns(nullptr),
     _random(random),
     _solveAnnotations(nullptr),
-    default_iv_obj_relax_indices(),
+    _objective_is_sum(false),
+    default_iv_obj_relax_indices(nullptr),
     last_best_restart(nullptr),
     last_best_objective(nullptr),
     variable_relations(nullptr),
@@ -926,10 +927,10 @@ namespace Gecode { namespace FlatZinc {
     ciglns_info(nullptr),
     _lnsAnnType(LNSAnnType::NO_LNS_ANN),
     _incumbentSolution(std::make_shared<IncumbentSolution>()),
-    optimum_found(nullptr),
     needAuxVars(true),
-    use_self_subsuming(options.use_self_subsuming()),
-    soften_constraints(options.allow_softening()) {
+    use_dependency_curated_lns(true),
+    _use_soft_subsume(false),
+    soften_constraints(true) {
     branchInfo.init();
   }
 
@@ -948,7 +949,6 @@ namespace Gecode { namespace FlatZinc {
     bv_introduced = std::vector<bool>(2*boolVars);
 
     total_viol = IntVar(*this, 0, Int::Limits::max);
-    combined_obj = IntVar(*this, Int::Limits::min, Int::Limits::max);
 #ifdef GECODE_HAS_SET_VARS
     setVarCount = 0;
     sv = SetVarArray(*this, setVars);
@@ -961,14 +961,12 @@ namespace Gecode { namespace FlatZinc {
 #endif
   }
 
-  FlatZincSpace* FlatZincSpace::deepClone(std::shared_ptr<IncumbentSolution>& incumbentSolution, std::shared_ptr<std::atomic<bool>>& optimumFound) const {
+  FlatZincSpace* FlatZincSpace::deepClone() const {
     auto c = dynamic_cast<FlatZincSpace*>(clone());
     // fzs = static_cast<FlatZincSpace*>(fg->copy());
     // Set the solve annotations for the asset, as it does not follow from the clone.
     // Set the shared current best solutions between assets for each asset.
-    c->_incumbentSolution = incumbentSolution;
-    // Make space know if optimum has been found.
-    c->optimum_found = optimumFound;
+    c->_incumbentSolution = _incumbentSolution;
 
     // Copy iv,bv,sv_introduced vector from fg, as it does not follow the cloning process.
     c->iv_introduced = iv_introduced;
@@ -1246,15 +1244,15 @@ namespace Gecode { namespace FlatZinc {
 
     // For each variable present, map the iv index to the index that will be used in non_fzn_introduced_vars
     std::unordered_map<BoolVar*, int> bv_lns_indices;
-    bv_lns_indices.reserve(hasLnsVars() ? bv_lns.size() : 0);
+    bv_lns_indices.reserve(useDependencyCuratedLns() ? bv_lns.size() : 0);
     std::unordered_map<IntVar*, int> iv_lns_indices;
-    iv_lns_indices.reserve(hasLnsVars() ? iv_lns.size() : 0);
+    iv_lns_indices.reserve(useDependencyCuratedLns() ? iv_lns.size() : 0);
     std::unordered_map<FloatVar*, int> fv_lns_indices;
-    fv_lns_indices.reserve(hasLnsVars() ? fv_lns.size() : 0);
+    fv_lns_indices.reserve(useDependencyCuratedLns() ? fv_lns.size() : 0);
     std::unordered_map<SetVar*, int> sv_lns_indices;
-    sv_lns_indices.reserve(hasLnsVars() ? sv_lns.size() : 0);
+    sv_lns_indices.reserve(useDependencyCuratedLns() ? sv_lns.size() : 0);
 
-    if (hasLnsVars()) {
+    if (useDependencyCuratedLns()) {
       for (int i = 0;  i < bv_lns.size(); ++i) {
         bv_lns_indices.emplace(&bv_lns[i], i);
       }
@@ -1272,32 +1270,32 @@ namespace Gecode { namespace FlatZinc {
     std::vector<int> num_vars(constraint_input_vars.size(), 0);
     for (size_t i = 0; i < constraint_input_vars.size(); i++) {
       for (const int varIndex : constraint_input_vars[i][0]) {
-        if (!hasLnsVars() || bv_lns_indices.find(&bv[varIndex]) != bv_lns_indices.end()) {
+        if (!useDependencyCuratedLns() || bv_lns_indices.find(&bv[varIndex]) != bv_lns_indices.end()) {
           ++num_vars[i];
         }
       }
       for (const int varIndex : constraint_input_vars[i][1]) {
-        if (!hasLnsVars() || iv_lns_indices.find(&iv[varIndex]) != iv_lns_indices.end()) {
+        if (!useDependencyCuratedLns() || iv_lns_indices.find(&iv[varIndex]) != iv_lns_indices.end()) {
           ++num_vars[i];
         }
       }
       for (const int varIndex : constraint_input_vars[i][2]) {
-        if (!hasLnsVars() || fv_lns_indices.find(&fv[varIndex]) != fv_lns_indices.end()) {
+        if (!useDependencyCuratedLns() || fv_lns_indices.find(&fv[varIndex]) != fv_lns_indices.end()) {
           ++num_vars[i];
         }
       }
       for (const int varIndex : constraint_input_vars[i][3]) {
-        if (!hasLnsVars() || sv_lns_indices.find(&sv[varIndex]) != sv_lns_indices.end()) {
+        if (!useDependencyCuratedLns() || sv_lns_indices.find(&sv[varIndex]) != sv_lns_indices.end()) {
           ++num_vars[i];
         }
       }
     }
 
     std::array<int, 4> lnsVarSizes{
-      hasLnsVars() ? bv_lns.size() : bv.size(),
-      hasLnsVars() ? iv_lns.size() : iv.size(),
-      hasLnsVars() ? fv_lns.size() : fv.size(),
-      hasLnsVars() ? sv_lns.size() : sv.size()
+      useDependencyCuratedLns() ? bv_lns.size() : bv.size(),
+      useDependencyCuratedLns() ? iv_lns.size() : iv.size(),
+      useDependencyCuratedLns() ? fv_lns.size() : fv.size(),
+      useDependencyCuratedLns() ? sv_lns.size() : sv.size()
     };
 
     std::array<std::vector<int>, 4> numConstraints{
@@ -1312,7 +1310,7 @@ namespace Gecode { namespace FlatZinc {
         continue;
       }
       for (const int var_index : inputData[0]) {
-        if (hasLnsVars()) {
+        if (useDependencyCuratedLns()) {
           auto* var = &bv[var_index];
           if (bv_lns_indices.find(var) != bv_lns_indices.end()) {
             ++numConstraints[0].at(bv_lns_indices[var]);
@@ -1322,7 +1320,7 @@ namespace Gecode { namespace FlatZinc {
         }
       }
       for (const int var_index : inputData[1]) {
-        if (hasLnsVars()) {
+        if (useDependencyCuratedLns()) {
           auto* var = &iv[var_index];
           if (iv_lns_indices.find(var) != iv_lns_indices.end()) {
             ++numConstraints[1].at(iv_lns_indices[var]);
@@ -1332,7 +1330,7 @@ namespace Gecode { namespace FlatZinc {
         }
       }
       for (const int var_index : inputData[2]) {
-        if (hasLnsVars()) {
+        if (useDependencyCuratedLns()) {
           auto* var = &fv[var_index];
           if (fv_lns_indices.find(var) != fv_lns_indices.end()) {
             ++numConstraints[2].at(fv_lns_indices[var]);
@@ -1342,7 +1340,7 @@ namespace Gecode { namespace FlatZinc {
         }
       }
       for (const int var_index : inputData[3]) {
-        if (hasLnsVars()) {
+        if (useDependencyCuratedLns()) {
           auto* var = &sv[var_index];
           if (sv_lns_indices.find(var) != sv_lns_indices.end()) {
             ++numConstraints[3].at(sv_lns_indices[var]);
@@ -1354,7 +1352,7 @@ namespace Gecode { namespace FlatZinc {
     }
 
     auto getIndex = [&](int t, int v) {
-      if (!hasLnsVars()) {
+      if (!useDependencyCuratedLns()) {
         return v;
       }
       if (t == 0) {
@@ -1435,14 +1433,27 @@ namespace Gecode { namespace FlatZinc {
   }
 
   void FlatZincSpace::storeConstraintInformation(const std::vector<ConExpr*>& originalConstraints) {
-    switch (_lnsType) {
-      case CIG:
+    for (ConExpr* ce : originalConstraints) {
+      if (ce->id != "int_lin_eq" || ce->ann == nullptr || ce->ann->a.empty() || !ce->ann->getArray()->a[0]->isCall("defines_var")) {
+        continue;
+      }
+      AST::Call* call = ce->ann->getArray()->a[0]->getCall("defines_var");
+      AST::Node* var = call->args;
+
+      if (var != nullptr && var->getIntVar() != _optVar) {
+        _objective_is_sum = true;
+        break;
+      }
+    }
+
+    switch (_assetType) {
+      case AssetType::CIGLNS:
         populateCostImpactData();
       break;
-      case SVR:
+      case AssetType::SVRLNS:
         populateStaticVariableRelationData(originalConstraints);
       break;
-      case OBJREL:
+      case AssetType::OBJRELLNS:
         populateObjRelData();
       break;
       default:
@@ -1452,7 +1463,7 @@ namespace Gecode { namespace FlatZinc {
 
     last_best_restart = std::make_shared<unsigned long>(0);
     if (last_best_objective == nullptr) {
-      last_best_objective = std::make_shared<int>(0);
+      last_best_objective = std::make_shared<std::pair<int, int>>(0, 0);
     }
   }
 
@@ -2022,12 +2033,15 @@ namespace Gecode { namespace FlatZinc {
 
     if (_method == MIN) {
       if (_optVarIsInt) {
-        std::vector<std::string> names(1);
-        names[0] = _optVar < 0 ? "combinedObjective" : p.intVarName(_optVar);
+        std::vector<std::string> names(2);
+        names[0] = "total_viol";
+        names[1] = p.intVarName(_optVar);
         BrancherGroup bg;
-        branch(bg(*this), combined_obj, INT_VAL_MIN(),
+        branch(bg(*this), total_viol, INT_VAL_MIN(),
                &varValPrint<IntVar>);
-        branchInfo.add(bg,"=","!=",names);
+        branch(bg(*this), iv[_optVar],  INT_VAL_MIN(),
+               &varValPrint<IntVar>);
+        branchInfo.add(bg,"=","!=", names);
       } else {
 #ifdef GECODE_HAS_FLOAT_VARS
         std::vector<std::string> names(1);
@@ -2040,10 +2054,12 @@ namespace Gecode { namespace FlatZinc {
       }
     } else if (_method == MAX) {
       if (_optVarIsInt) {
-        assert(false);
-        std::vector<std::string> names(1);
-        names[0] = p.intVarName(_optVar);
+        std::vector<std::string> names(2);
+        names[0] = "total_viol";
+        names[1] = p.intVarName(_optVar);
         BrancherGroup bg;
+        branch(bg(*this), total_viol, INT_VAL_MIN(),
+               &varValPrint<IntVar>);
         branch(bg(*this), iv[_optVar], INT_VAL_MAX(),
                &varValPrint<IntVar>);
         branchInfo.add(bg,"=","!=",names);
@@ -2057,6 +2073,14 @@ namespace Gecode { namespace FlatZinc {
         branchInfo.add(bg,"<=",">",names);
 #endif
       }
+    } else {
+      assert(_method == SAT);
+      std::vector<std::string> names(1);
+      names[0] = "total_viol";
+      BrancherGroup bg;
+      branch(bg(*this), total_viol, INT_VAL_MIN(),
+             &varValPrint<IntVar>);
+      branchInfo.add(bg,"=","!=",names);
     }
   }
 
@@ -2064,16 +2088,14 @@ namespace Gecode { namespace FlatZinc {
     if (method() != other.method()) {
       throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different methods.");
     }
+    if (total_viol.val() < other.total_viol.val()) {
+      return -1;
+    }
+    if (total_viol.val() > other.total_viol.val()) {
+      return 1;
+    }
     if (method() == SAT) {
       return 0;
-    }
-    if (!viol_vars.empty() && !other.viol_vars.empty()) {
-      if (total_viol.val() < other.total_viol.val()) {
-        return -1;
-      }
-      if (total_viol.val() > other.total_viol.val()) {
-        return 1;
-      }
     }
     if (_optVarIsInt != other._optVarIsInt) {
       throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different objective variable types.");
@@ -2089,8 +2111,8 @@ namespace Gecode { namespace FlatZinc {
       return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
     }
 #endif
-    const int thisVal = _optVar < 0 ? combined_obj.min() : iv[_optVar].min();
-    const int otherVal = other._optVar < 0 ? other.combined_obj.min() : other.iv[other._optVar].min();
+    const int thisVal = _optVar < 0 ? 0 : iv[_optVar].min();
+    const int otherVal = other._optVar < 0 ? 0 : other.iv[other._optVar].min();
     if (thisVal == otherVal) {
       return 0;
     }
@@ -2346,7 +2368,7 @@ namespace Gecode { namespace FlatZinc {
   FlatZincSpace::solve(AST::Array* ann) {
     _method = SAT;
     _solveAnnotations = ann;
-    last_best_objective = std::make_shared<int>(0);
+    last_best_objective = std::make_shared<std::pair<int, int>>(std::numeric_limits<int>::max(), 0);
   }
 
   void
@@ -2355,7 +2377,7 @@ namespace Gecode { namespace FlatZinc {
     _optVar = var;
     _optVarIsInt = isInt;
     _solveAnnotations = ann;
-    last_best_objective = std::make_shared<int>(std::numeric_limits<int>::max());
+    last_best_objective = std::make_shared<std::pair<int, int>>(std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
   }
 
   void
@@ -2364,7 +2386,7 @@ namespace Gecode { namespace FlatZinc {
     _optVar = var;
     _optVarIsInt = isInt;
     _solveAnnotations = ann;
-    last_best_objective = std::make_shared<int>(std::numeric_limits<int>::min());
+    last_best_objective = std::make_shared<std::pair<int, int>>(std::numeric_limits<int>::max(), std::numeric_limits<int>::min());
   }
 
   FlatZincSpace::~FlatZincSpace(void) {
@@ -2719,31 +2741,15 @@ namespace Gecode { namespace FlatZinc {
 #endif
 
   void FlatZincSpace::populateCombinedObjective(const FlatZincOptions& opt) {
-    if(!viol_vars.empty()){
-      IntVarArgs v;
-      for (int i = 0; i < viol_vars.size();i++){
-        v << viol_vars[i];
-      }
-      rel(*this, total_viol == sum(v));
-
-      if (_method == MIN)
-        rel(*this, combined_obj == total_viol * 200 + iv[_optVar] * 1);
-      else if(_method == MAX)
-        rel(*this, combined_obj == total_viol * 200 - iv[_optVar] * 1);
-      else{
-        rel(*this, combined_obj == total_viol);
-        _method = MIN;
-      }
-    } else if (_optVarIsInt) {
-      if (_method == MIN)
-        rel(*this, combined_obj == iv[_optVar]);
-      else if(_method == MAX){
-        rel(*this, combined_obj == -iv[_optVar]);
-        _method = MIN;
-      }
-    } else {
-      rel(*this, combined_obj == 0);
+    if (viol_vars.empty()) {
+      rel(*this, total_viol, IRT_EQ, 0);
+      return;
     }
+    IntVarArgs v;
+    for (int i = 0; i < viol_vars.size();i++){
+      v << viol_vars[i];
+    }
+    rel(*this, total_viol == sum(v));
   }
 
   void
@@ -2782,14 +2788,28 @@ namespace Gecode { namespace FlatZinc {
     assert(_incumbentSolution != nullptr);
     // If PBS, update global bounds.
     const auto global_solution = _incumbentSolution->load();
-
+    const int local_viol = dynamic_cast<const FlatZincSpace&>(s).total_viol.val();
+    const int best_viol = (global_solution != nullptr && global_solution->total_viol.assigned())
+    ? std::min(local_viol, global_solution->total_viol.val())
+    : local_viol;
+    if (best_viol > 0) {
+      rel(*this, total_viol, IRT_LE, best_viol);
+      return;
+    }
+    rel(*this, total_viol, IRT_EQ, 0);
+    if (_method == SAT) {
+      return;
+    }
     if (_optVarIsInt) {
-      const int local_objective = dynamic_cast<const FlatZincSpace&>(s).combined_obj.val();
-      const int best_objective = (global_solution != nullptr && global_solution->combined_obj.assigned())
+      const int local_objective = dynamic_cast<const FlatZincSpace&>(s).iv[_optVar].val();
+      const int best_objective = (global_solution != nullptr && global_solution->iv[_optVar].assigned())
           // Make sure the global solution exists and that it is assigned.
-        ? std::min(local_objective, global_solution->combined_obj.val())
+        ? (_method == MIN
+          ? std::min(local_objective, global_solution->iv[_optVar].val())
+          : std::max(local_objective, global_solution->iv[_optVar].val()))
         : local_objective;
-      rel(*this, combined_obj, IRT_LE, best_objective);
+
+      rel(*this, iv[_optVar], _method == MIN ? IRT_LE : IRT_GR, best_objective);
     }
     else {
 #ifdef GECODE_HAS_FLOAT_VARS
@@ -3014,28 +3034,28 @@ namespace Gecode { namespace FlatZinc {
     }
 
     // Depending on the type of LNS, apply it and return false.
-    switch (_lnsType) {
-      case RANDOM:
+    switch (_assetType) {
+      case AssetType::LNS_USER:
       {
         return LNSstrategies::random(*this, mi);
       }
-      case PG:
+      case AssetType::PGLNS:
       {
         return LNSstrategies::propagationGuided(*this, mi, 10);
       }
-      case rPG:
+      case AssetType::REVPGLNS:
       {
         return LNSstrategies::reversedPropagationGuided(*this, mi, 10);
       }
-      case OBJREL:
+      case AssetType::OBJRELLNS:
       {
         return LNSstrategies::objectiveRelaxation(*this, mi);
       }
-      case CIG:
+      case AssetType::CIGLNS:
       {
         return LNSstrategies::costImpactGuided(*this, mi, 2, 0.5);
       }
-      case SVR:
+      case AssetType::SVRLNS:
       {
         return LNSstrategies::staticVariableRelation(*this, mi);
       }

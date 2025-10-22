@@ -27,7 +27,7 @@ bool hasLast(const FlatZincSpace& fzs, const MetaInfo& mi) {
 
 std::shared_ptr<const FlatZincSpace> getLast(FlatZincSpace& fzs, const MetaInfo& mi) {
   if (fzs._incumbentSolution != nullptr) {
-    auto last = fzs._incumbentSolution->load();
+    auto last = fzs._incumbentSolution->load_random();
     if (last != nullptr) {
       return last;
     }
@@ -38,52 +38,50 @@ std::shared_ptr<const FlatZincSpace> getLast(FlatZincSpace& fzs, const MetaInfo&
   return nullptr;
 }
 
-const BoolVar& lnsBoolVarConst(const FlatZincSpace& fzs, int index) {
-  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[index];
+const BoolVar& lnsBoolVarConst(const FlatZincSpace& fzs, int index, bool useDependencyCuratedLns) {
+  return useDependencyCuratedLns ? fzs.bv_lns[index] : fzs.bv[index];
 }
 
-const BoolVar& lnsBoolVarConst(const FlatZincSpace& fzs, int index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[(*iv_indices)[index]];
+const BoolVar& lnsBoolVarConst(const FlatZincSpace& fzs, int index) {
+  return lnsBoolVarConst(fzs, index, fzs.useDependencyCuratedLns());
+}
+
+BoolVar& lnsBoolVar(FlatZincSpace& fzs, int index, bool useDependencyCuratedLns) {
+  return useDependencyCuratedLns ? fzs.bv_lns[index] : fzs.bv[index];
 }
 
 BoolVar& lnsBoolVar(FlatZincSpace& fzs, int index) {
-  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[index];
-}
-
-BoolVar& lnsBoolVar(FlatZincSpace& fzs, int index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  return fzs.hasLnsVars() ? fzs.bv_lns[index] : fzs.bv[(*iv_indices)[index]];
+  return lnsBoolVar(fzs, index, fzs.useDependencyCuratedLns());
 }
 
 void freezeBool(FlatZincSpace& fzs, const FlatZincSpace& last, int index) {
-  rel(fzs, lnsBoolVar(fzs, index), IRT_EQ, lnsBoolVarConst(last, index).val());
+  rel(fzs,
+    lnsBoolVar(fzs, index),
+    IRT_EQ,
+    lnsBoolVarConst(last, index, fzs.useDependencyCuratedLns()).val());
 }
 
-void freezeBool(FlatZincSpace& fzs, const FlatZincSpace& last, int index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  rel(fzs, lnsBoolVar(fzs, index, iv_indices), IRT_EQ, lnsBoolVarConst(last, index, iv_indices).val());
+const IntVar& lnsIntVarConst(const FlatZincSpace& fzs, int index, bool useDependencyCuratedLns) {
+  return useDependencyCuratedLns ? fzs.iv_lns[index] : fzs.iv[index];
 }
 
 const IntVar& lnsIntVarConst(const FlatZincSpace& fzs, int index) {
-  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[index];
+  return lnsIntVarConst(fzs, index, fzs.useDependencyCuratedLns());
 }
 
-const IntVar& lnsIntVarConst(const FlatZincSpace& fzs, int index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
+IntVar& lnsIntVar(FlatZincSpace& fzs, int index, bool useDependencyCuratedLns) {
+  return useDependencyCuratedLns ? fzs.iv_lns[index] : fzs.iv[index];
 }
 
 IntVar& lnsIntVar(FlatZincSpace& fzs, int index) {
-  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[index];
-}
-
-IntVar& lnsIntVar(FlatZincSpace& fzs, int index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  return fzs.hasLnsVars() ? fzs.iv_lns[index] : fzs.iv[(*iv_indices)[index]];
+  return lnsIntVar(fzs, index, fzs.useDependencyCuratedLns());
 }
 
 void freezeInt(FlatZincSpace& fzs, const FlatZincSpace& last, int index) {
-  rel(fzs, lnsIntVar(fzs, index), IRT_EQ, lnsIntVarConst(last, index).val());
-}
-
-void freezeInt(FlatZincSpace& fzs, const FlatZincSpace& last, int index, const std::shared_ptr<const std::vector<int>>& iv_indices) {
-  rel(fzs, lnsIntVar(fzs, index, iv_indices), IRT_EQ, lnsIntVarConst(last, index, iv_indices).val());
+  rel(fzs,
+    lnsIntVar(fzs, index),
+    IRT_EQ,
+    lnsIntVarConst(last, index, fzs.useDependencyCuratedLns()).val());
 }
 
 bool shouldPerformLns(const FlatZincSpace& fzs, const MetaInfo& mi) {
@@ -94,24 +92,24 @@ bool shouldPerformLns(const FlatZincSpace& fzs, const MetaInfo& mi) {
 
 std::vector<std::pair<VAR_TYPE, int>> createLnsVars(const FlatZincSpace& fzs, const FlatZincSpace& last) {
   vector<std::pair<VAR_TYPE, int>> lnsVars;
-  lnsVars.reserve(fzs.hasLnsVars() ? fzs.numLnsVars() : fzs.numVars());
-  const int numBoolVars = fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size();
+  lnsVars.reserve(fzs.useDependencyCuratedLns() ? fzs.numLnsVars() : fzs.numVars());
+  const int numBoolVars = fzs.useDependencyCuratedLns() ? fzs.bv_lns.size() : fzs.bv.size();
   for (int i = 0; i < numBoolVars; ++i) {
-    if (lnsBoolVarConst(last, i).assigned()) {
+    if (lnsBoolVarConst(last, i, fzs.useDependencyCuratedLns()).assigned()) {
       lnsVars.emplace_back(VAR_BOOL, i);
     }
   }
-  const int numIntVars = fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size();
+  const int numIntVars = fzs.useDependencyCuratedLns() ? fzs.iv_lns.size() : fzs.iv.size();
   for (int i = 0; i < numIntVars; ++i) {
-    if (lnsIntVarConst(last, i).assigned()) {
+    if (lnsIntVarConst(last, i, fzs.useDependencyCuratedLns()).assigned()) {
       lnsVars.emplace_back(VAR_INT, i);
     }
   }
-  const int numFloatVars = fzs.hasLnsVars() ? fzs.fv_lns.size() : fzs.fv.size();
+  const int numFloatVars = fzs.useDependencyCuratedLns() ? fzs.fv_lns.size() : fzs.fv.size();
   for (int i = 0; i < numFloatVars; ++i) {
     lnsVars.emplace_back(VAR_FLOAT, i);
   }
-  const int numSetVars = fzs.hasLnsVars() ? fzs.sv_lns.size() : fzs.sv.size();
+  const int numSetVars = fzs.useDependencyCuratedLns() ? fzs.sv_lns.size() : fzs.sv.size();
   for (int i = 0; i < numSetVars; ++i) {
     lnsVars.emplace_back(VAR_SET_OF_VAR, i);
   }
@@ -149,11 +147,27 @@ void freeze(FlatZincSpace& fzs, const FlatZincSpace& last, const std::pair<VAR_T
   }
 }
 
+int lexComp(const std::pair<int, int> a, const std::pair<int, int> b) {
+  if (a.first < b.first) {
+    return -1;
+  }
+  if (a.first == b.first) {
+    if (a.second < b.second) {
+      return -1;
+    }
+    if (a.second == b.second) {
+      return 0;
+    }
+  }
+  return 1;
+}
 
 bool updateLastBest(FlatZincSpace& fzs, const MetaInfo& mi, const FlatZincSpace& last) {
-  const int obj = last.combined_obj.val();
-  const bool isBetter = obj < *fzs.last_best_objective;
-  if (isBetter) {
+  const std::pair<int,int> obj{
+    last.viol_vars.empty() ? 0 : last.total_viol.val(),
+    !last.optVarIsInt() || last.optVar() < 0 ? 0 : last.iv[last.optVar()].val()};
+
+  if (lexComp(obj, *fzs.last_best_objective) < 0) {
     *fzs.last_best_objective = obj;
     *fzs.last_best_restart = mi.restart();
     return true;
@@ -357,12 +371,16 @@ bool LNSstrategies::objectiveRelaxation(FlatZincSpace& fzs, const MetaInfo& mi){
   return false;
 }
 
-int getBound(const BoolVar& var, bool minimize) {
-  return minimize ? var.min() : var.max();
-}
-
-int getBound(const IntVar& var, bool minimize){
-  return minimize ? var.min() : var.max();
+int lexBound(const FlatZincSpace& fzs, const FlatZincSpace& last) {
+  if (last.total_viol.val() > 0) {
+    return fzs.total_viol.min();
+  }
+  if (fzs.method() == FlatZincSpace::SAT) {
+    return 0;
+  }
+  assert(fzs.optVar() > 0);
+  assert(fzs.optVarIsInt());
+  return fzs.method() == FlatZincSpace::MAX ? fzs.iv[fzs.optVar()].min() : -fzs.iv[fzs.optVar()].max();
 }
 
 int randInInterval(int lowInc, int upExc, Rnd& random) {
@@ -407,13 +425,13 @@ bool LNSstrategies::costImpactGuided(FlatZincSpace& fzs, const MetaInfo& mi, uns
       for (int i = 0; i < static_cast<int>(lnsVars.size()); ++i){
         std::swap(indices[i], indices[randInInterval(i, static_cast<int>(indices.size()), fzs.random())]);
 
-        const int oldBound = getBound(fzs_clone->combined_obj, fzs.method() == FlatZincSpace::MIN);
+        const int oldBound = lexBound(*fzs_clone, *last);
         // The variables stored in vars.intVar are those variables found in iv_lns_default.
         const int lnsFreezeVar = indices[i];
         freeze(*fzs_clone, *last, lnsVars[lnsFreezeVar]);
         fzs_clone->status();
 
-        const int newBound = getBound(fzs_clone->combined_obj, fzs.method() == FlatZincSpace::MIN);
+        const int newBound = lexBound(*fzs_clone, *last);
         // Corresponds to (3) in the paper:
         // if minimising, then newBound >= oldBound. If newBound is high, then impact is high
         // else, maximising and oldBound >= newBound. If newBound is low, then impact is high
@@ -533,10 +551,10 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
 
   auto lnsVars = createLnsVars(fzs, *last);
   const std::array<int, 4> lnsSizes{
-  fzs.hasLnsVars() ? fzs.bv_lns.size() : fzs.bv.size(),
-  fzs.hasLnsVars() ? fzs.iv_lns.size() : fzs.iv.size(),
-  fzs.hasLnsVars() ? fzs.fv_lns.size() : fzs.fv.size(),
-  fzs.hasLnsVars() ? fzs.sv_lns.size() : fzs.sv.size()};
+  fzs.useDependencyCuratedLns() ? fzs.bv_lns.size() : fzs.bv.size(),
+  fzs.useDependencyCuratedLns() ? fzs.iv_lns.size() : fzs.iv.size(),
+  fzs.useDependencyCuratedLns() ? fzs.fv_lns.size() : fzs.fv.size(),
+  fzs.useDependencyCuratedLns() ? fzs.sv_lns.size() : fzs.sv.size()};
 
   if (fzs.variable_impacts == nullptr || foundBetter ||
     fzs.variable_impacts->at(0).size() < lnsSizes[0] ||
@@ -552,14 +570,14 @@ bool LNSstrategies::staticVariableRelation(FlatZincSpace& fzs, const MetaInfo& m
       fzs.variable_impacts->at(t).resize(lnsSizes[t]);
     }
 
-    const int oldBound = getBound(last->combined_obj, fzs.method() == FlatZincSpace::MIN);
+    const int oldBound = lexBound(*last, *last);
     for (const auto& lnsVar : lnsVars) {
       auto* fzs_clone = dynamic_cast<FlatZincSpace*>(fzs.clone());
 
       freeze(*fzs_clone, *last, lnsVar);
       fzs_clone->status();
 
-      const int newBound = getBound(fzs_clone->combined_obj, fzs.method() == FlatZincSpace::MIN);
+      const int newBound = lexBound(*fzs_clone, *last);
       const int impact = std::abs(newBound - oldBound);
       fzs.variable_impacts->at(typeToInt(lnsVar.first)).at(lnsVar.second) = impact;
       delete fzs_clone;

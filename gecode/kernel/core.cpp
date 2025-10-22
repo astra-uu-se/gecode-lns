@@ -270,7 +270,7 @@ namespace Gecode {
         p->u.med = 0;
         switch (p->propagate(*this,med_o)) {
           case ES_FAILED:
-            if (p->group() == PropagatorGroup::soft_subsume) {
+            if (p->group() == PropagatorGroup::soft_subsume && useSoftSubsume()) {
               // propagator cleanup:
               this->ES_SUBSUMED(*p);
               // kernel cleanup:
@@ -341,7 +341,7 @@ namespace Gecode {
         p->u.med = 0;
         switch (p->propagate(*this,med_o)) {
         case ES_FAILED:
-          if (p->group() == PropagatorGroup::soft_subsume) {
+          if (p->group() == PropagatorGroup::soft_subsume && useSoftSubsume()) {
             // propagator cleanup:
             this->ES_SUBSUMED(*p);
             // kernel cleanup:
@@ -428,7 +428,7 @@ namespace Gecode {
         p->u.med = 0;
         switch (p->propagate(*this,med_o)) {
         case ES_FAILED:
-          if (p->group() == PropagatorGroup::soft_subsume) {
+          if (p->group() == PropagatorGroup::soft_subsume && useSoftSubsume()) {
             //std::cout << "Subsumed " << p->id()  << " " << typeid(*p).name() << std::endl;
             // propagator cleanup:
             this->ES_SUBSUMED(*p);

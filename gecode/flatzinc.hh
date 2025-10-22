@@ -85,6 +85,8 @@
 #include <gecode/support/auto-link.hpp>
 #endif
 
+#include <deque>
+#include <bits/random.h>
 #include <gecode/driver.hh>
 
 #include <gecode/flatzinc/conexpr.hh>
@@ -235,34 +237,73 @@ namespace Gecode { namespace FlatZinc {
 
   class IncumbentSolution {
     std::mutex _mutex;
-    std::shared_ptr<const FlatZincSpace> _space{nullptr};
+    static constexpr size_t _maxSize = 3;
+    std::deque<std::shared_ptr<const FlatZincSpace>> _spaces;
   public:
     IncumbentSolution() = default;
 
-    std::shared_ptr<const FlatZincSpace> load() {
+    std::shared_ptr<const FlatZincSpace> load_random() {
       _mutex.lock();
-      auto space = _space;
+      if (_spaces.empty()) {
+        return nullptr;
+      }
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<size_t> distr(size_t{0}, _spaces.size() - 1);
+      const size_t index = distr(gen);
+      auto space = _spaces[index];
       _mutex.unlock();
       return space;
     }
 
-    bool compare_exchange_strong(const std::shared_ptr<const FlatZincSpace>& expected, std::shared_ptr<FlatZincSpace> desired) {
+    std::shared_ptr<const FlatZincSpace> load() {
       _mutex.lock();
-      const bool ret = _space == expected;
+      auto space = _spaces.empty() ? nullptr : _spaces.front();
+      _mutex.unlock();
+      return space;
+    }
+
+    bool compare_replace_strong(const std::shared_ptr<const FlatZincSpace>& expected_front, const std::shared_ptr<FlatZincSpace> &desired) {
+      _mutex.lock();
+      const bool ret = (_spaces.empty() && expected_front == nullptr) || _spaces.front() == expected_front;
       if (ret) {
-        _space = std::move(desired);
+        _spaces.clear();
+        _spaces.emplace_back(desired);
       }
       _mutex.unlock();
       return ret;
     }
 
-    void store(const std::shared_ptr<FlatZincSpace> &desired) {
+    bool compare_enqueue_strong(const std::shared_ptr<const FlatZincSpace>& expected_front, const std::shared_ptr<FlatZincSpace>& desired) {
       _mutex.lock();
-      _space = desired;
+      const bool ret = (_spaces.empty() && expected_front == nullptr) || _spaces.front() == expected_front;
+      if (ret) {
+        if (_spaces.size() >= _maxSize) {
+          _spaces.pop_front();
+        }
+        _spaces.emplace_back(desired);
+      }
+      _mutex.unlock();
+      return ret;
+    }
+
+    void enqueue(const std::shared_ptr<FlatZincSpace>& desired) {
+      _mutex.lock();
+      if (_spaces.size() >= _maxSize) {
+        _spaces.pop_front();
+      }
+      _spaces.emplace_back(desired);
       _mutex.unlock();
     }
 
-    [[nodiscard]] bool hasValue() const { return _space != nullptr; }
+    void replace(const std::shared_ptr<FlatZincSpace> &desired) {
+      _mutex.lock();
+      _spaces.clear();
+      _spaces.emplace_back(desired);
+      _mutex.unlock();
+    }
+
+    [[nodiscard]] bool hasValue() const { return !_spaces.empty(); }
 
   };
 
@@ -306,7 +347,6 @@ namespace Gecode { namespace FlatZinc {
       Gecode::Driver::BoolOption        _stat;       ///< Emit statistics
       Gecode::Driver::StringValueOption _output;     ///< Output file
 
-      Gecode::Driver::BoolOption _use_self_subsuming;
       Gecode::Driver::BoolOption _allow_softening;
 
 #ifdef GECODE_HAS_CPPROFILER
@@ -360,10 +400,7 @@ namespace Gecode { namespace FlatZinc {
       _mode("mode","how to execute script",Gecode::SM_SOLUTION),
       _stat("s","emit statistics"),
       _output("o","file to send output to"),
-      _use_self_subsuming("selfsubsuming",
-                             "Use selfsubsuming propagators when softening",
-                             true),
-         _allow_softening(
+      _allow_softening(
              "soften",
              "Allow annotated constraints to be automatically softened",
              true)
@@ -394,7 +431,6 @@ namespace Gecode { namespace FlatZinc {
       add(_mode); add(_stat); add(_use_pbs); add(_full_s); add(_assets);
       add(_pbs_asset_type);
       add(_output);
-      add(_use_self_subsuming);
       add(_allow_softening);
 #ifdef GECODE_HAS_CPPROFILER
       add(_profiler);
@@ -455,7 +491,6 @@ namespace Gecode { namespace FlatZinc {
     unsigned int nogoods_limit(void) const { return _nogoods_limit.value(); }
     bool interrupt(void) const { return _interrupt.value(); }
     int pbsAssetType(void) const { return _pbs_asset_type.value(); }
-    bool use_self_subsuming(void) const { return _use_self_subsuming.value(); }
     bool allow_softening(void) const { return _allow_softening.value(); }
 
 #ifdef GECODE_HAS_CPPROFILER
@@ -511,14 +546,19 @@ namespace Gecode { namespace FlatZinc {
       MIN, //< Solve as minimization problem
       MAX  //< Solve as maximization problem
     };
-    enum LNSType {
-      RANDOM, //< Standard LNS
-      PG, //< Propagation Guided LNS
-      rPG, //< Reversed Propagation Guided LNS
-      OBJREL, //< Objective relax LNS
-      CIG, // < Cost Impact Guided LNS
-      SVR, // < Static Variable Relationship LNS
-      NONE //< No LNS used by asset in FlatZincSpace.
+    enum class AssetType {
+        // SHAVING, //< Shaving asset.
+        USER, //< First asset is the user asset.
+        LNS_USER, //< Second asset is the user asset with LNS.
+        PGLNS, //< Propagation guided LNS.
+        CIGLNS, //< Cost impact guided LNS.
+        OBJRELLNS, //< Objective relaxation LNS.
+        SVRLNS, //< Static variable relationship LNS.
+        REVPGLNS, //< Reverse propagation guided LNS.
+        PB_USER, //< Prioritized branching user asset.
+        USER_OPPOSITE,  //< The user asset with opposite branching.
+        SHAVING, //< Shaving asset.
+        DUMMY //< Dummy asset.
     };
     enum LNSAnnType {
       NO_LNS_ANN,
@@ -529,7 +569,11 @@ namespace Gecode { namespace FlatZinc {
     int getintVarCount() const { return intVarCount; }
     int getboolVarCount() const { return boolVarCount; }
     int getsetVarCount() const { return setVarCount; }
-    void setLNSType(LNSType lns_type) { _lnsType = lns_type; }
+    void setAssetType(AssetType assetType) { _assetType = assetType; }
+
+    [[nodiscard]] bool useSoftSubsume() const override {
+      return _use_soft_subsume;
+    }
 
     std::vector<ConExpr*> constraints;
   protected:
@@ -562,7 +606,7 @@ namespace Gecode { namespace FlatZinc {
     /// Annotations on the solve item
     AST::Array* _solveAnnotations;
 
-    LNSType _lnsType;
+    AssetType _assetType;
     LNSAnnType _lnsAnnType;
 
     LNSstrategies _lnsStrategy;
@@ -599,6 +643,7 @@ namespace Gecode { namespace FlatZinc {
 
     // Integer variables used for inital branching if asset in PBS is to do so:
     std::vector<int> iv_initial_branching;
+    bool _objective_is_sum;
     /// The indices in this->iv used for the objective relaxation asset:
     std::shared_ptr<std::vector<int>> default_iv_obj_relax_indices;
 
@@ -607,11 +652,6 @@ namespace Gecode { namespace FlatZinc {
     FloatVarArray fv_lns;
     SetVarArray sv_lns;
 
-    std::shared_ptr<std::vector<bool>> iv_is_root;
-    std::shared_ptr<std::vector<bool>> bv_is_root;
-    std::shared_ptr<std::vector<bool>> fv_is_root;
-    std::shared_ptr<std::vector<bool>> sv_is_root;
-
     // Gecode::IntVarArray iv_lns_default;
     // Gecode::IntVarArray iv_lns_obj_relax;
     // Gecode::IntVarArray non_fzn_introduced_vars;
@@ -619,11 +659,12 @@ namespace Gecode { namespace FlatZinc {
     [[nodiscard]] unsigned int freezePercent() const {
       return *_lns;
     }
-    [[nodiscard]] bool hasLnsVars() const {
-      return bv_lns.size() > 0 ||
+    [[nodiscard]] bool useDependencyCuratedLns() const {
+      return use_dependency_curated_lns && (
+        bv_lns.size() > 0 ||
         iv_lns.size() > 0 ||
-          fv_lns.size() > 0 ||
-            sv_lns.size() > 0;
+        fv_lns.size() > 0 ||
+        sv_lns.size() > 0);
     }
 
 
@@ -639,7 +680,7 @@ namespace Gecode { namespace FlatZinc {
       return _random;
     }
     std::shared_ptr<unsigned long> last_best_restart;
-    std::shared_ptr<int> last_best_objective;
+    std::shared_ptr<std::pair<int, int>> last_best_objective;
 
     std::shared_ptr<std::array<std::vector<std::array<std::vector<double>,4>>,4>> variable_relations;
     std::shared_ptr<std::array<std::vector<int>,4>> variable_impacts;
@@ -741,9 +782,7 @@ namespace Gecode { namespace FlatZinc {
 #endif
     // The current best solution, used in constrain between all assets in pbs. ADDED
     std::shared_ptr<IncumbentSolution> _incumbentSolution;
-    std::shared_ptr<std::mutex> _incumbentSolutionMutex;
 
-    std::shared_ptr<std::atomic<bool>> optimum_found;
     /// Whether the introduced variables still need to be copied
     bool needAuxVars;
 
@@ -752,13 +791,13 @@ namespace Gecode { namespace FlatZinc {
 
     Gecode::IntVar total_viol;
 
-    Gecode::IntVar combined_obj;
-    bool use_self_subsuming;
+    bool use_dependency_curated_lns;
+    bool _use_soft_subsume;
     bool soften_constraints;
 
 
     /// Construct empty space
-    FlatZincSpace(Rnd& random = defrnd, const FlatZincOptions& opt=nullptr);
+    FlatZincSpace(Rnd& random = defrnd);
 
     /// Destructor
     ~FlatZincSpace(void);
@@ -766,7 +805,7 @@ namespace Gecode { namespace FlatZinc {
     /// Initialize space with given number of variables
     void init(int intVars, int boolVars, int setVars, int floatVars);
 
-    FlatZincSpace* deepClone(std::shared_ptr<IncumbentSolution>& incumbentSolution, std::shared_ptr<std::atomic<bool>>& optimumFound) const;
+    FlatZincSpace* deepClone() const;
 
     /// Create new integer variable from specification
     void newIntVar(IntVarSpec* vs);

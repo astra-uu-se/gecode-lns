@@ -272,8 +272,6 @@ namespace Gecode { namespace FlatZinc {
     }
     void p_int_lin_eq(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
       if (s.soften_constraints && ann->hasAtom("soften")) {
-        if (s.use_self_subsuming && !ann->hasAtom("onlyViol"))
-          p_int_lin_CMP(PropagatorGroup::soft_subsume(s), IRT_EQ, ce, ann);
         //Post penalty
         IntArgs ia = s.arg2intargs(ce[0]);
         IntVarArgs iv = s.arg2intvarargs(ce[1]);
@@ -302,10 +300,8 @@ namespace Gecode { namespace FlatZinc {
       if (s.soften_constraints && (ann == nullptr || !ann->hasAtom("defines_var"))) {
         // std::cout << "%% Detected soft constraint" << std::endl;
         //TODO: change space to subsuming home.
-        if (s.use_self_subsuming && !ann->hasAtom("onlyViol")){
-          p_int_lin_CMP(PropagatorGroup::soft_subsume(s), IRT_LQ, ce, ann);
-          // std::cout << "%% Posting self_subsuming" << std::endl;
-        }
+        p_int_lin_CMP(PropagatorGroup::soft_subsume(s), IRT_LQ, ce, ann);
+        // std::cout << "%% Posting self_subsuming" << std::endl;
         // Post penalty
         IntArgs ia = s.arg2intargs(ce[0]);
         IntVarArgs iv = s.arg2intvarargs(ce[1]);
@@ -518,7 +514,7 @@ namespace Gecode { namespace FlatZinc {
       min(s, x0, x1, x2, s.ann2ipl(ann));
     }
     void p_int_max(FlatZincSpace& s, const ConExpr& ce, AST::Node* ann) {
-      if (s.use_self_subsuming && !ce.ann->hasAtom("defines_var")) {
+      if (s.soften_constraints && !ce.ann->hasAtom("defines_var")) {
         IntVar x0 = s.arg2IntVar(ce[0]);
         IntVar x1 = s.arg2IntVar(ce[1]);
         IntVar x2 = s.arg2IntVar(ce[2]);
@@ -1158,8 +1154,7 @@ namespace Gecode { namespace FlatZinc {
         unshare(s, x);
         IntPropLevel ipl = s.ann2ipl(ann);
         if (ipl == IPL_DEF) ipl = IPL_BND;
-        if(s.use_self_subsuming && !ann->hasAtom("onlyViol"))
-          count(PropagatorGroup::soft_subsume(s), x, y, cover, ipl);
+        count(PropagatorGroup::soft_subsume(s), x, y, cover, ipl);
         //Add violation:
         IntVarArgs counts;
         for (int i = cover.size(); i--;) {

@@ -2129,6 +2129,8 @@ namespace Gecode {
     GECODE_KERNEL_EXPORT
     virtual bool slave(const MetaInfo& mi);
 
+    [[nodiscard]] virtual bool useSoftSubsume(void) const { return true; }
+
     /*
      * Member functions for search engines
      *
@@ -4099,7 +4101,7 @@ namespace Gecode {
   Space::enqueue(Propagator* p) {
     ActorLink::cast(p)->unlink();
     ActorLink* c = &pc.p.queue[
-      p->group()!=PropagatorGroup::soft_subsume
+      p->group() != PropagatorGroup::soft_subsume || !useSoftSubsume()
       ? p->cost(*this,p->u.med).ac
       : PropCost::AC_CRAZY_HI];
     c->tail(ActorLink::cast(p));

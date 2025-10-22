@@ -76,10 +76,13 @@
  */
 #define GECODE_ME_FAIL(me) do {                                                    \
   if (::Gecode::me_failed(me)) {                                                   \
-    if (Home(home).propagatorgroup() != ::Gecode::PropagatorGroup::soft_subsume) { \
-      (home).fail();                                                               \
+    if (Home(home).propagatorgroup() == ::Gecode::PropagatorGroup::soft_subsume) { \
+        const Space& s = Home(home);                                               \
+        if (s.useSoftSubsume()) {                                                  \
+          return;                                                                  \
+        }                                                                          \
     }                                                                              \
-    return;                                                                        \
+    (home).fail();                                                                 \
   }} while (0)
 
 
@@ -106,10 +109,13 @@
     ::Gecode::ExecStatus gecode_es_ ## __LINE__ = (es);                              \
     assert(gecode_es_ ## __LINE__ != ::Gecode::ES_SUBSUMED_);                        \
     if (gecode_es_ ## __LINE__ < ::Gecode::ES_OK) {                                  \
-      if (Home(home).propagatorgroup() != ::Gecode::PropagatorGroup::soft_subsume) { \
-        (home).fail();                                                               \
+      if (Home(home).propagatorgroup() == ::Gecode::PropagatorGroup::soft_subsume) { \
+          const Space& s = Home(home);                                               \
+          if (s.useSoftSubsume()) {                                                  \
+            return;                                                                  \
+          }                                                                          \
       }                                                                              \
-      return;                                                                        \
+      (home).fail();                                                                 \
     }                                                                                \
   } while (0)
 
