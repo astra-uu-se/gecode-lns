@@ -46,11 +46,11 @@ void SearchController::thread_done() {
     }
 }
 
-FlatZincSpace::AssetType SearchController::assetType(int armId, bool lockMutex) {
+FlatZincSpace::AssetType SearchController::assetType(size_t armId, bool lockMutex) {
     if (lockMutex) {
         _banditMutex.lock();
     }
-    const auto assetType = 0 <= armId && armId < _armIdToAssetType.size()
+    const auto assetType = armId < _armIdToAssetType.size()
         ? _armIdToAssetType[armId]
         : FlatZincSpace::AssetType::DUMMY;
     if (lockMutex) {
@@ -59,11 +59,11 @@ FlatZincSpace::AssetType SearchController::assetType(int armId, bool lockMutex) 
     return assetType;
 }
 
-bool SearchController::useSelfSubsumingPropagators(int armId, bool lock) {
+bool SearchController::useSelfSubsumingPropagators(size_t armId, bool lock) {
     if (lock) {
         _banditMutex.lock();
     }
-    const auto assetType = 0 <= armId && armId < _armIdToSelfSubsuming.size()
+    const auto assetType = armId < _armIdToSelfSubsuming.size()
         ? _armIdToSelfSubsuming[armId]
         : false;
     if (lock) {
@@ -72,11 +72,11 @@ bool SearchController::useSelfSubsumingPropagators(int armId, bool lock) {
     return assetType;
 }
 
-bool SearchController::useDependencyCuratedLns(int armId, bool lock) {
+bool SearchController::useDependencyCuratedLns(size_t armId, bool lock) {
     if (lock) {
         _banditMutex.lock();
     }
-    const auto assetType = 0 <= armId && armId < _armIdToSelfSubsuming.size()
+    const auto assetType = armId < _armIdToSelfSubsuming.size()
         ? _armIdToCuratedDependency[armId]
         : false;
     if (lock) {
@@ -116,14 +116,14 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
                 _ostream << "%% objective: " << sol->iv[sol->optVar()] << std::endl;
             }
             updateMultiArmedBandit();
-        } else if (sol_comp <0) {
+        } else if (sol_comp < 0) {
             if (!sol->viol_vars.empty() && (sol->total_viol.val() > 0 || _method == FlatZincSpace::SAT)) {
                 _ostream << "%% total violation: " << sol->total_viol << std::endl;
             } else if (sol->optVarIsInt() && sol->optVar() >= 0) {
                 _ostream << "%% objective: " << sol->iv[sol->optVar()] << std::endl;
             }
         }
-        if (success) {
+        if (success && sol_comp < 0) {
             _allBestSolutions->emplace_back(std::dynamic_pointer_cast<Gecode::Space>(sol));
             if (_flatZincOptions.allSolutions()) {
                 sol->print(_ostream, _printer);
@@ -135,8 +135,8 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
             if (asset_id < _assets.size()) {
                 _finishedAsset = asset_id;
             }
-            _assets[asset_id]->incrSolutions();
         }
+        _assets[asset_id]->incrSolutions(1);
     }
     _solutionMutex.unlock();
 
@@ -270,7 +270,7 @@ void SearchController::createBanditArmAsset(unsigned int assetId) {
     _assets[assetId]->setAssetTypeStr("bandit arm asset");
 }
 
-void SearchController::createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, unsigned int numThreads) {
+void SearchController::createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, bool useSelfSubsumingPropagators) {
     switch (asset)
     {
     case FlatZincSpace::AssetType::SHAVING:
@@ -280,19 +280,19 @@ void SearchController::createAsset(FlatZincSpace::AssetType asset, unsigned int 
         }
         break;
     case FlatZincSpace::AssetType::USER:
-        _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, numThreads));
+        _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 1, useSelfSubsumingPropagators));
         if (_flatZincOptions.mode() == SM_STAT) {
             _assets[assetId]->setAssetTypeStr("bab asset");
         }
         break;
     case FlatZincSpace::AssetType::PB_USER:
-        _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, numThreads));
+        _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 1, useSelfSubsumingPropagators));
         if (_flatZincOptions.mode() == SM_STAT) {
             _assets[assetId]->setAssetTypeStr("prioritized branching bab asset");
         }
         break;
     case FlatZincSpace::AssetType::USER_OPPOSITE:
-        _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, numThreads));
+        _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 1, useSelfSubsumingPropagators));
         if (_flatZincOptions.mode() == SM_STAT) {
             _assets[assetId]->setAssetTypeStr("bab opposite branching asset");
         }
@@ -384,21 +384,19 @@ void SearchController::updateMultiArmedBandit() {
             }
         }
     }
-    _bandit = std::make_unique<NormalBandit>(numArms);
+    _bandit = std::make_unique<Bandit>(numArms);
     _banditMutex.unlock();
 }
 
 void SearchController::createAssets(double initTime) {
     // Vector of asset type and the number of threads to use for that asset type.
-    std::array<FlatZincSpace::AssetType, 3> defaultCompleteTypes{
-                FlatZincSpace::AssetType::USER,
-                FlatZincSpace::AssetType::PB_USER,
-                FlatZincSpace::AssetType::USER_OPPOSITE};
+    std::array<std::pair<FlatZincSpace::AssetType, bool>, 2> defaultCompleteTypes{
+                std::pair<FlatZincSpace::AssetType, bool>{FlatZincSpace::AssetType::USER, false},
+                std::pair<FlatZincSpace::AssetType, bool>{FlatZincSpace::AssetType::USER, true}};
 
     const int numCompleteAssets = defaultCompleteTypes.size();
-    const int numLnsAssets = std::min(static_cast<int>(_flatZincOptions.threads()) - numCompleteAssets, 6);
-    const bool useShaving = _flatZincOptions.threads() - numCompleteAssets - numLnsAssets > 0;
-    const int numDfsUserThreads = std::max(1,numCompleteAssets - numLnsAssets - (useShaving ? 1 : 0));
+    const int numLnsAssets = static_cast<int>(_flatZincOptions.threads()) - numCompleteAssets;
+    const bool useShaving = false && _flatZincOptions.threads() - numCompleteAssets - numLnsAssets > 0;
 
     // Set array sizes indexed by the assets id.
     _assets.resize(_flatZincOptions.threads());
@@ -409,8 +407,8 @@ void SearchController::createAssets(double initTime) {
 
     // Create complete assets:
     int assetId = 0;
-    for (const auto completeAsset : defaultCompleteTypes) {
-        createAsset(completeAsset, assetId, completeAsset == FlatZincSpace::AssetType::USER ? numDfsUserThreads : 1);
+    for (const auto [completeAsset, useNonFailingPropagators] : defaultCompleteTypes) {
+        createAsset(completeAsset, assetId, useNonFailingPropagators);
         ++assetId;
     }
     for (int i = 0; i < numLnsAssets; ++i) {
@@ -418,7 +416,7 @@ void SearchController::createAssets(double initTime) {
         ++assetId;
     }
     if (useShaving) {
-        createAsset(FlatZincSpace::AssetType::SHAVING, assetId);
+        createAsset(FlatZincSpace::AssetType::SHAVING, assetId, false);
         ++assetId;
     }
     for (auto& asset : _assets) {
@@ -439,7 +437,11 @@ bool SearchController::init() {
     if (preSearchProp == SS_FAILED) {
         _ostream << "=====UNSATISFIABLE=====" << std::endl;
         // Create dummy asset so that information about UNSAT space can be printed out:
-        _assets[0] = std::make_unique<BaseAsset>(*_flatZincSpace, _flatZincOptions);
+        if (_assets.empty()) {
+            _assets.emplace_back(std::make_unique<BaseAsset>(*_flatZincSpace, _flatZincOptions));
+        } else {
+            _assets[0] = std::make_unique<BaseAsset>(*_flatZincSpace, _flatZincOptions);
+        }
         _assets[0]->setStatusStatistics(_statusStatistics);
         _assets[0]->increaseSolveTime(initTime);
         if (_flatZincOptions.mode() == SM_STAT) {
@@ -511,227 +513,77 @@ void SearchController::run() {
 // ########################################################################
 //                         Multi Armed Bandit below.
 // ########################################################################
-Bandit::Bandit(const int n, double epsilon, double learning_rate) :
-    _num_actions(n),
-    _epsilon(epsilon),
-    _learning_rate(learning_rate),
-    _q(n),
-    _preferences(n),
-    _true_values(n),
-    _nt(n),
-    _UCB_values(n),
-    _q_temperature(n),
-    _pii(n) {}
+Bandit::Bandit(const size_t numArms, const double temperature, const double learningRate) :
+    _numArms(numArms),
+    _temperature(temperature),
+    _totalReward(numArms, 0.0),
+    _averageReward(numArms, 0.0),
+    _armTotalCount(numArms, 0) {}
 
-void Bandit::updateBestAction(long action) {
-    if (action ==  std::distance(_true_values.begin(), std::max_element(_true_values.begin(), _true_values.end()))) {
-        _best_action = 1;
-    } else {
-        _best_action = 0;
-    }
-}
-
-int Bandit::generateAction(std::vector<double>& weights) {
+size_t Bandit::randomArm(std::vector<double>& weights) {
     std::random_device rd;
     std::mt19937_64 generator(rd());
-    auto distro = std::discrete_distribution<int>(weights.begin(), weights.end());
+    auto distro = std::discrete_distribution<size_t>(weights.begin(), weights.end());
     return distro(generator);
 }
 
 
-int Bandit::take_action() {
-    int action = 0;
-
+size_t Bandit::randomArm() const {
     std::random_device rd;
     std::mt19937_64 generator(rd());
 
     std::uniform_real_distribution<double> epsilon_distro(0, 1);
     const double rand_num = epsilon_distro(generator);
 
-    if (rand_num < _epsilon) {
+    if (rand_num < _temperature) {
         //random action
-        std::uniform_int_distribution<int> action_distro(0, _num_actions - 1);
-        action = action_distro(generator);
-    } else {
-        //greedy action
-        action = static_cast<int>(std::distance(_q.begin(), std::max_element(_q.begin(), _q.end())));
+        std::uniform_int_distribution<size_t> action_distro(0, _numArms - 1);
+        return action_distro(generator);
     }
-    updateBestAction(action);
-
-    ++_nt[action];
-
-    return action;
+    //greedy action
+    return std::distance(_averageReward.begin(), std::max_element(_averageReward.begin(), _averageReward.end()));
 }
 
-int Bandit::UCB(double beta) {
+size_t Bandit::softMax(const double tau) const {
 
-    long action = 0;
-
-    for (int j=0; j<_num_actions; j++) {
-        if (_nt[j] != 0) {
-            _UCB_values[j] = _q[j] + beta * sqrt(log(static_cast<double>(_nt[j])) / _nt[j]);
-        } else {
-            _UCB_values[j] = 10000;
-        }
+    std::vector<double> weights(_numArms);
+    for (size_t i = 0; i < _numArms; i++) {
+        weights[i] = exp(_averageReward[i] / tau);
     }
-    action = std::distance(_UCB_values.begin(), std::max_element(_UCB_values.begin(), _UCB_values.end()));
-    updateBestAction(action);
-
-    ++_nt[action];
-
-    return action;
-}
-
-int Bandit::Boltzmann_exploration(double tau) {
 
     double denominator = 0;
-
-    for (int i=0; i<_num_actions; i++) {
-        _q_temperature[i] = _q[i] / tau;
+    for (size_t i = 0; i < _numArms; i++) {
+        denominator += weights[i];
+    }
+    for (size_t i = 0; i < _numArms; i++) {
+        weights[i] /= denominator;
     }
 
-    const double max_val = *std::max(_q.begin(), _q.end());
-    for (int i=0; i<_num_actions; i++) {
-        denominator += exp(_q_temperature[i] - max_val);
-    }
-
-    std::vector<double> weights(_num_actions);
-
-    for (int i=0; i<_num_actions; i++) {
-        weights[i] = exp(_q_temperature[i] - max_val) / denominator;
-    }
-
-    const long action = generateAction(weights);
-    updateBestAction(action);
-
-    //nt[action] += 1;
-
-    return action;
+    return randomArm(weights);
 
 }
 
-int Bandit::gradient_bandit_action() {
-
-    double denominator = 0;
-
-    for (int i=0; i<_num_actions; i++) {
-        denominator += exp(_preferences[i]);
-    }
-
-    for (int i=0; i<_num_actions; i++) {
-        _pii[i] = exp(_preferences[i]) / denominator;
-    }
-
-    const long action = generateAction(_pii);
-    updateBestAction(action);
-
-    return action;
-
+void Bandit::updateReward(const size_t arm, const double reward) {
+    assert(arm < _numArms);
+    ++_totalCount;
+    ++_armTotalCount[arm];
+    _totalReward[arm] += reward;
+    _averageReward[arm] += _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
 }
 
-void Bandit::update_q(double r, int a) {
-    _q[a] += _learning_rate * (r - _q[a]);
-}
-
-void Bandit::update_q_n(double r, int a, int n) {
-    if (n==0) {
-        _q[a] += (r - _q[a]);
-    } else {
-        _q[a] += (1.0 / n) * (r - _q[a]);
-    }
+void Bandit::updateRewardUCB(const size_t arm, const double reward, const double beta) {
+    assert(arm < _numArms);
+    ++_totalCount;
+    ++_armTotalCount[arm];
+    _ucb = sqrt(2 * beta * log(static_cast<double>(_armTotalCount[arm]) / static_cast<double>(_armTotalCount[arm])));
+    const double ucbReward = reward + _ucb;
+    _totalReward[arm] += ucbReward;
+    _averageReward[arm] = _totalReward[arm]/static_cast<double>(_armTotalCount[arm]);
 }
 
 
-void Bandit::update_avg_reward(int n, double r) {
-    if (n == 0) {
-        _avg_reward += 1.0 * (r - _avg_reward);
-    }
-    else {
-        _avg_reward += 1.0 / n * (r - _avg_reward);
-    }
-}
-
-void Bandit::update_action_preferences(double r, int a) {
-    for (int i=0; i<_num_actions; i++) {
-        if (i==a) {
-            _preferences[i] += _learning_rate * (r - _avg_reward) * (1.0 - _pii[i]);
-        } else {
-            _preferences[i] -= _learning_rate * (r - _avg_reward) * _pii[i];
-        }
-    }
-}
-
-int Bandit::get_best_action() const {
-    return _best_action;
-}
-
-void Bandit::single_run(unsigned int run_length) {
-    std::vector<int> opt_actions(run_length);
-    std::vector<double> returns(run_length);
-    for (int j=0; j<run_length; j++){
-        const int a = take_action();
-        opt_actions[j] = get_best_action();
-        returns[j] = sample_return(a);
-        update_q(returns[j], a);
-    }
-}
-
-void Bandit::single_run_UCB(unsigned int run_length, double c) {
-    std::vector<int> opt_actions(run_length);
-    std::vector<double> returns(run_length);
-    for (int j=0; j<run_length; j++){
-        const int a = UCB(c);
-        opt_actions[j] = get_best_action();
-        returns[j] = sample_return(a);
-        update_q(returns[j], a);
-    }
-}
-
-void Bandit::single_run_Boltzmann(unsigned int run_length, double tau) {
-    std::vector<int> opt_actions(run_length);
-    std::vector<double> returns(run_length);
-    for (int j=0; j<run_length; j++){
-        const int a = Boltzmann_exploration(tau);
-        opt_actions[j] = get_best_action();
-        returns[j] = sample_return(a);
-        update_q(returns[j], a);
-    }
-}
-
-void Bandit::single_run_gradient(unsigned int run_length) {
-    std::vector<int> opt_actions(run_length);
-    std::vector<double> returns(run_length);
-    for (int j=0; j<run_length; j++){
-        const int a = gradient_bandit_action();
-        opt_actions[j] = get_best_action();
-        returns[j] = sample_return(a);
-        update_q(returns[j], a);
-    }
-}
-
-NormalBandit::NormalBandit(int num_actions, double epsilon, double learning_rate, double var, double q_max)
-    : Bandit(num_actions, epsilon, learning_rate),
-    _var(var) {
-    std::random_device rd{};
-    std::mt19937_64 gen{rd()};
-    std::normal_distribution<double> distribution{0.0, _var};
-
-    for (int i=0; i < _num_actions; i++) {
-        _true_values[i] = distribution(gen);
-        _q[i] = q_max;
-        _UCB_values[i] = 10000;
-        _nt[i] = 0;
-        _preferences[i] = 0;
-        _pii[i] = 0;
-    }
-    _avg_reward = 0;
-}
-
-double NormalBandit::sample_return(int a) {
-    std::random_device rd;
-    std::mt19937_64 generator(rd());
-    std::normal_distribution<double> distribution(_true_values[a], _var);
-    return distribution(generator);
+size_t Bandit::bestArm() const {
+    return std::distance(_averageReward.begin(), std::max_element(_averageReward.begin(), _averageReward.end()));
 }
 
 // ########################################################################
@@ -753,9 +605,6 @@ void AssetExecutor::runSearch() {
     size_t round = 0;
 
     do {
-        if (round > 0) {
-            ;
-        }
         asset->updateBanditArmId();
         // update engine with new timeout
         if (round > 0) {
@@ -778,7 +627,6 @@ void AssetExecutor::runSearch() {
             }
             sol = nextSol;
 
-            // If one asset finished, stop looking for more solutions.
             solWasBestSol = control.updateBestSolution(sol, asset_id);
             if (solWasBestSol && sol->method() == FlatZincSpace::SAT && sol->total_viol.val() == 0) {
                 break;
@@ -795,7 +643,7 @@ void AssetExecutor::runSearch() {
 
             // Change the search engine to update cd and ad.
             auto stats = engine->statistics();
-            if (!control._assetSwappedEngine[asset_id] && stats.depth > 50) {
+            if (asset->assetType() != FlatZincSpace::AssetType::USER && !control._assetSwappedEngine[asset_id] && stats.depth > 50) {
                 Search::Options& searchOptions = asset->searchOptions();
                 searchOptions.c_d *= stats.depth;
                 searchOptions.a_d *= 2;
@@ -831,6 +679,9 @@ void AssetExecutor::runSearch() {
     } while (asset->runNextRound());
     // Stop the search timer.
     const double t = t_solve.stop();
+    if (!asset->engine()->stopped() && !isLnsType(asset->assetType())) {
+        control._optimumFound->store(true);
+    }
     asset->increaseSolveTime(t);
     control.thread_done();
 }
@@ -1039,8 +890,17 @@ executor(new AssetExecutor(searchController, this, fopt, assetId, true)) {
     _curFlatZincSpace->createBranchers(searchController._printer, _originalFlatZincSpace.solveAnnotations(), _flatZincOptions, false, _branchModifier, std::cerr);
 
     assert(_searchOptions == nullptr);
-    _searchOptions = generateSearchOptions(_originalFlatZincSpace, Driver::PBSCombinedStop::create(_flatZincOptions.node(), _flatZincOptions.fail(), _flatZincOptions.time(), 0, true, _searchController._optimumFound));
-    _searchOptions->nogoods_limit = _flatZincOptions.nogoods() ? _flatZincOptions.nogoods_limit() : 0;
+    _searchOptions = std::make_shared<Search::Options>();
+    _searchOptions->c_d = _searchOptions->c_d;
+    _searchOptions->a_d = _searchOptions->a_d;
+    _searchOptions->numThreads = _numThreads;
+    _searchOptions->stop = Driver::PBSCombinedStop::create(
+        0,
+        0,
+        _flatZincOptions.time(),
+        0,
+        true,
+        _searchController._optimumFound);
 
     if (_flatZincOptions.interrupt()) {
         Driver::PBSCombinedStop::installCtrlHandler(true);
@@ -1149,12 +1009,10 @@ void BanditArmAsset::updateBanditArmId() {
 
     // update reward if bandit has not changed.
     if (_searchController.banditTimestamp() == _banditTimestamp) {
-        const double reward = _numSolutions == 0 ? 0.0 : (1.0 - (1.0 / static_cast<double>(_numSolutions)));
-
-        _searchController._bandit->update_q(reward, _banditArmId);
+        _searchController._bandit->updateReward(_banditArmId, static_cast<double>(_numCurSolutions));
     }
     // get new arm
-    _banditArmId = _searchController._bandit->UCB();
+    _banditArmId = _searchController._bandit->softMax();
     // update local parameters
     _assetType = _searchController.assetType(_banditArmId, false);
     _useSelfSubsumingPropagators = _searchController.useSelfSubsumingPropagators(_banditArmId, false);
@@ -1162,6 +1020,8 @@ void BanditArmAsset::updateBanditArmId() {
     _banditTimestamp = _searchController.banditTimestamp();
     // unlock
     _searchController._banditMutex.unlock();
+
+    _numCurSolutions = 0;
 
     // Update current FlatZincSpace
     _curFlatZincSpace->setAssetType(_assetType);

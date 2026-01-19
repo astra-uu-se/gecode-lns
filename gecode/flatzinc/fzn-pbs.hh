@@ -234,50 +234,27 @@ public:
 /// Multi armed bandit
 class Bandit {
 protected:
-    int _num_actions;
-    double _epsilon;
-    double _learning_rate;
-    std::vector<double> _q;
-    std::vector<double> _preferences;
-    std::vector<double> _true_values;
-    std::vector<int> _nt;
-    std::vector<double> _UCB_values;
-    std::vector<double> _q_temperature;
-    std::vector<double> _pii;
-    double _avg_reward{0};
-    int _best_action{-1};
-    int generateAction(std::vector<double>& weights);
-    void updateBestAction(long action);
+    size_t _totalCount{0};
+    double _ucb{0.0};
+
+    size_t _numArms;
+    /// Often called epsilon
+    double _temperature;
+    std::vector<double> _totalReward;
+    std::vector<double> _averageReward;
+    std::vector<size_t> _armTotalCount;
+
+    static size_t randomArm(std::vector<double>& weights);
 
 public:
-    Bandit(int num_actions, double epsilon, double learning_rate);
+    explicit Bandit(size_t numArms, double temperature = 0.1, double learningRate = 0.1);
 
     virtual ~Bandit() = default;
-    void update_q(double r, int a);
-    void update_q_n(double r, int a, int n);
-    void update_avg_reward(int n, double r);
-    void update_action_preferences(double r, int a);
-    [[nodiscard]] int get_best_action() const;
-    int take_action();
-    int UCB(double beta = 0.1);
-    int Boltzmann_exploration(double tau = 0.1);
-    int gradient_bandit_action();
-    virtual double sample_return(int a) = 0;
-
-    void single_run(unsigned int run_length);
-    void single_run_UCB(unsigned int run_length, double c = 0.1);
-    void single_run_Boltzmann(unsigned int run_length, double tau = 0.1);
-    void single_run_gradient(unsigned int run_length);
-};
-
-class NormalBandit : public Bandit {
-private:
-    double _var;
-
-public:
-    explicit NormalBandit(int num_actions, double epsilon = 0.1, double learning_rate = 0.1, double var = 1.0, double q_max = 0.0);
-
-    double sample_return(int a) override;
+    void updateReward(size_t arm, double reward);
+    void updateRewardUCB(size_t arm, double reward, double beta=1.0);
+    [[nodiscard]] size_t bestArm() const;
+    [[nodiscard]] size_t randomArm() const;
+    [[nodiscard]] size_t softMax(double tau = 0.1) const;
 };
 
 
@@ -313,7 +290,7 @@ class BaseAsset {
     FlatZincOptions& _flatZincOptions;
     StatusStatistics _statusStatistics;
     unsigned int _assetId;
-    int _banditArmId;
+    size_t _banditArmId;
     FlatZincSpace::AssetType _assetType;
     bool _useDependencyCuratedLns;
     bool _useSelfSubsumingPropagators;
@@ -395,7 +372,7 @@ public:
     [[nodiscard]] virtual bool runNextRound() const;
     virtual void updateEngine() {};
     [[nodiscard]] size_t numSolutions() const { return _numSolutions; }
-    size_t incrSolutions(size_t increment = 1) { return _numSolutions += increment; }
+    virtual size_t incrSolutions(size_t increment) { return _numSolutions += increment; }
 };
 
 class DFSAsset : public BaseAsset {
@@ -513,6 +490,11 @@ public:
     [[nodiscard]] long unsigned int shavingStart() const override { return _shavingStart; }
     [[nodiscard]] AssetExecutor* getExecutor() const { return executor; }
     [[nodiscard]] Search::Options& searchOptions() const override { return *_searchOptions; }
+    size_t incrSolutions(size_t increment) override {
+        BaseAsset::incrSolutions(increment);
+        _numCurSolutions += increment;
+        return _numCurSolutions;
+    }
 
     void setShavingStart(long unsigned int start) override { _shavingStart = start; }
     void setEngine(BaseEngine* engine) override { this->_engine = dynamic_cast<RBSEngine*>(engine); }
@@ -537,6 +519,7 @@ private:
     const double defaultTime{5000};
     std::optional<double> time;
     size_t _banditTimestamp{std::numeric_limits<size_t>::max()};
+    size_t _numCurSolutions{0};
 
 };
 
@@ -611,11 +594,11 @@ public:
     // Signals that a search for a thread is finished.
     void thread_done();
 
-    FlatZincSpace::AssetType assetType(int armId, bool lockMutex = true);
+    FlatZincSpace::AssetType assetType(size_t armId, bool lockMutex = true);
 
-    bool useSelfSubsumingPropagators(int armId, bool lockMutex = true);
+    bool useSelfSubsumingPropagators(size_t armId, bool lockMutex = true);
 
-    bool useDependencyCuratedLns(int armId, bool lockMutex = true);
+    bool useDependencyCuratedLns(size_t armId, bool lockMutex = true);
 
     [[nodiscard]] size_t banditTimestamp() const {
         return _banditTimestamp;
@@ -660,7 +643,7 @@ private:
     // Waits for all threads to be done.
     void awaitRunnersCompleted();
     // Creates the asset used by the portfolio.
-    void createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, unsigned int numThreads = 1);
+    void createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, bool useSelfSubsumingPropagators);
 
     [[nodiscard]] bool isValidBanditArm(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators,
                       bool useDependencyCuratedLns) const;

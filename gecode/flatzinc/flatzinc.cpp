@@ -2111,8 +2111,8 @@ namespace Gecode { namespace FlatZinc {
       return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
     }
 #endif
-    const int thisVal = _optVar < 0 ? 0 : iv[_optVar].min();
-    const int otherVal = other._optVar < 0 ? 0 : other.iv[other._optVar].min();
+    const int thisVal = _optVar < 0 ? 0 : iv[_optVar].val();
+    const int otherVal = other._optVar < 0 ? 0 : other.iv[other._optVar].val();
     if (thisVal == otherVal) {
       return 0;
     }
@@ -2647,20 +2647,30 @@ namespace Gecode { namespace FlatZinc {
       }
       bool printAll = _method == SAT || opt.allSolutions() || noOfSolutions != 0;
       int findSol = noOfSolutions;
-      FlatZincSpace* sol = nullptr;
+      std::shared_ptr<FlatZincSpace> sol = nullptr;
       bool hasSolution = noOfSolutions > 0;
-      while (FlatZincSpace* next_sol = se.next()) {
-        sol = next_sol;
+      bool lastViolated = !viol_vars.empty();
+      bool hasPrinted = false;
+      while (auto next_sol = std::shared_ptr<FlatZincSpace>(se.next())) {
         --findSol;
-        if (!viol_vars.empty()) {
-          out << "%% Violation: " << sol->total_viol << std::endl;
+        if (lastViolated) {
+          out << "%% Violation: " << next_sol->total_viol << std::endl;
+          lastViolated = next_sol->total_viol.val() > 0;
         }
-        if ((viol_vars.empty() || sol->total_viol.val() == 0) && (_optVar < 0 || printAll || findSol == 0)) {
-          hasSolution = hasSolution || (_optVar < 0 && sol->total_viol.val() == 0);
-          sol->print(out, p);
+        const bool isSatisfied = next_sol->viol_vars.empty() || next_sol->total_viol.val() == 0;
+        hasPrinted = isSatisfied && (_method == SAT || printAll || findSol == 0);
+        if (hasPrinted) {
+          next_sol->print(out, p);
           out << "----------" << std::endl;
         }
-        delete sol;
+        hasSolution = hasSolution || isSatisfied;
+        sol = next_sol;
+        if (hasSolution && _method == SAT) {
+          break;
+        }
+      }
+      if (sol != nullptr && hasSolution && !hasPrinted) {
+        sol->print(out, p);
       }
       if (!se.stopped()) {
         if (noOfSolutions > 0 || hasSolution) {
@@ -2668,8 +2678,8 @@ namespace Gecode { namespace FlatZinc {
         } else {
           out << "=====UNSATISFIABLE=====" << std::endl;
         }
-      } else if (noOfSolutions <= 0) {
-          out << "=====UNKNOWN=====" << std::endl;
+      } else if (!hasSolution && noOfSolutions <= 0) {
+        out << "=====UNKNOWN=====" << std::endl;
       }
       if (opt.interrupt())
         Driver::CombinedStop::installCtrlHandler(false);
@@ -2763,21 +2773,19 @@ namespace Gecode { namespace FlatZinc {
     this->populateLnsVars(constraints);
     this->shrinkArrays(p);
 
-    switch (_method) {
-    case MIN:
-    case MAX:
+    if (_method != SAT || useSoftSubsume()) {
       runEngine<BAB>(out,p,opt,t_total);
-      break;
-    case SAT:
+    } else {
       runEngine<DFS>(out,p,opt,t_total);
-      break;
     }
   }
 
   void FlatZincSpace::runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
     SearchController assetSearch(this, out, p, opt, t_total);
     storeConstraintInformation(constraints);
-    assetSearch.init();
+    if (!assetSearch.init()) {
+      return;
+    }
     assetSearch.run();
     variable_relations = nullptr;
     variable_impacts = nullptr;
@@ -2785,15 +2793,35 @@ namespace Gecode { namespace FlatZinc {
 
   void
   FlatZincSpace::constrain(const Space& s) {
+    const auto& miSpace = dynamic_cast<const FlatZincSpace&>(s);
     assert(_incumbentSolution != nullptr);
     // If PBS, update global bounds.
     const auto global_solution = _incumbentSolution->load();
-    const int local_viol = dynamic_cast<const FlatZincSpace&>(s).total_viol.val();
+    const int local_viol = miSpace.total_viol.val();
     const int best_viol = (global_solution != nullptr && global_solution->total_viol.assigned())
     ? std::min(local_viol, global_solution->total_viol.val())
     : local_viol;
     if (best_viol > 0) {
-      rel(*this, total_viol, IRT_LE, best_viol);
+      if (_method == SAT) {
+        rel(*this, total_viol, IRT_LE, best_viol);
+        return;
+      }
+      rel(*this, total_viol, IRT_LQ, best_viol);
+
+      BoolVar betterViol(*this, 0, 1);
+      rel(*this, total_viol, IRT_LE, best_viol, betterViol);
+
+      BoolVar betterObj(*this, 0, 1);
+      const int local_objective = miSpace.iv[miSpace._optVar].val();
+      const int best_objective = (global_solution != nullptr && global_solution->iv[global_solution->_optVar].assigned())
+          // Make sure the global solution exists and that it is assigned.
+        ? (_method == MIN
+          ? std::min(local_objective, global_solution->iv[global_solution->_optVar].val())
+          : std::max(local_objective, global_solution->iv[global_solution->_optVar].val()))
+        : local_objective;
+
+      rel(*this, iv[_optVar], _method == MIN ? IRT_LE : IRT_GR, best_objective, betterObj);
+      rel(*this, betterViol, BOT_OR, betterObj, true);
       return;
     }
     rel(*this, total_viol, IRT_EQ, 0);
@@ -2801,15 +2829,16 @@ namespace Gecode { namespace FlatZinc {
       return;
     }
     if (_optVarIsInt) {
-      const int local_objective = dynamic_cast<const FlatZincSpace&>(s).iv[_optVar].val();
-      const int best_objective = (global_solution != nullptr && global_solution->iv[_optVar].assigned())
+      const int local_objective = miSpace.iv[miSpace._optVar].val();
+      const int best_objective = (global_solution != nullptr && global_solution->iv[global_solution->_optVar].assigned())
           // Make sure the global solution exists and that it is assigned.
         ? (_method == MIN
-          ? std::min(local_objective, global_solution->iv[_optVar].val())
-          : std::max(local_objective, global_solution->iv[_optVar].val()))
+          ? std::min(local_objective, global_solution->iv[global_solution->_optVar].val())
+          : std::max(local_objective, global_solution->iv[global_solution->_optVar].val()))
         : local_objective;
-
-      rel(*this, iv[_optVar], _method == MIN ? IRT_LE : IRT_GR, best_objective);
+      auto& ov = iv[_optVar];
+      rel(*this, ov, _method == MIN ? IRT_LE : IRT_GR, best_objective);
+      ;
     }
     else {
 #ifdef GECODE_HAS_FLOAT_VARS
@@ -3019,8 +3048,12 @@ namespace Gecode { namespace FlatZinc {
 
     if (_lnsAnnType != FULL_LNS_ANN && mi.restart() != 0 && mi.restart() > *last_best_restart){
       const unsigned long diff = mi.restart() - *last_best_restart;
-      const int change = diff > 50 ? 1 : -1;
-      *_lns = std::max<int>(5, std::min<int>(90, static_cast<int>(*_lns) + change));
+      if (*_lns >= 90 && diff > 150) {
+        *_lns = 5;
+      } else {
+        const int change = diff > 50 ? 1 : -1;
+        *_lns = std::max<int>(5, std::min<int>(90, static_cast<int>(*_lns) + change));
+      }
     }
     return {};
   }

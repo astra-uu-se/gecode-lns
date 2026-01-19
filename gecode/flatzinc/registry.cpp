@@ -1589,21 +1589,28 @@ namespace Gecode { namespace FlatZinc {
       IntVarArgs x = s.arg2intvarargs(ce[0]);
       IntArgs p = s.arg2intargs(ce[1]);
       unshare(s,x);
+      /*
       if (s.soften_constraints && (ce.ann == nullptr || ce.ann->hasAtom("soften"))) {
         IntVarArgs viols;
+        std::vector<IntVar> ends;
+        ends.reserve(x.size());
+        for (int i = 0; i < x.size(); ++i) {
+          ends.emplace_back(expr(s, x[i] + p[i]));
+        }
         for (int i = 0; i < x.size() - 1; ++i) {
           for (int j = 0; j < x.size(); ++j) {
-            BoolVar s1e2(s, 0, 1);
-            BoolVar s2e1(s, 0, 0);
-            rel(s, x[i], IRT_LE, expr(s, x[j] + p[j]), s1e2);
-            rel(s, x[j], IRT_LE, expr(s, x[i] + p[i]), s2e1);
-            viols << expr(s, s1e2 * s2e1);
+            BoolVar iBeforeJ(s, 0, 1);
+            BoolVar jBeforeI(s, 0, 1);
+            rel(s, x[i], IRT_LQ, ends[j], iBeforeJ);
+            rel(s, x[j], IRT_LQ, ends[i], jBeforeI);
+            viols << expr(s, iBeforeJ * jBeforeI);
           }
         }
         s.viol_vars.push_back(expr(s, sum(viols)));
         unary(PropagatorGroup::soft_subsume(s), x, p);
         return;
       }
+      */
       unary(s, x, p);
     }
 
