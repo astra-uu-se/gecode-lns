@@ -577,6 +577,21 @@ size_t Bandit::softMax(const double tau) const {
 
 }
 
+size_t Bandit::thompson() const{
+    std::random_device rd;
+    std::mt19937_64 generator(rd());
+
+    std::vector<double> gamma_draws(_numArms);
+    for (size_t i = 0; i < _numArms; i++) {
+        //The number of solutions found is modeled as an unknown Poisson process.
+        //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
+        std::gamma_distribution gamma(1 + _totalReward[i], 0.1 + static_cast<double>(_armTotalCount[i]));
+        gamma_draws[i] = gamma(generator);
+    }
+
+    return std::distance(gamma_draws.begin(), std::max_element(gamma_draws.begin(), gamma_draws.end()));
+}
+
 void Bandit::updateReward(const size_t arm, const double reward) {
     assert(arm < _numArms);
     ++_totalCount;
@@ -1039,7 +1054,7 @@ void BanditArmAsset::updateBanditArmId() {
         _searchController._bandit->updateReward(_banditArmId, static_cast<double>(_numCurSolutions));
     }
     // get new arm
-    _banditArmId = _searchController._bandit->softMax();
+    _banditArmId = _searchController._bandit->thompson();
     // update local parameters
     _assetType = _searchController.assetType(_banditArmId, false);
     _useSelfSubsumingPropagators = _searchController.useSelfSubsumingPropagators(_banditArmId, false);

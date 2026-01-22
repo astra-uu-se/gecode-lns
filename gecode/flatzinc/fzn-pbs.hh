@@ -255,6 +255,8 @@ public:
     [[nodiscard]] size_t bestArm() const;
     [[nodiscard]] size_t randomArm() const;
     [[nodiscard]] size_t softMax(double tau = 0.1) const;
+
+    size_t thompson() const;
 };
 
 
