@@ -232,33 +232,56 @@ public:
     }
 };
 /// Multi armed bandit
-class Bandit {
+
+class AbstractBandit {
 protected:
     size_t _totalCount{0};
-    double _ucb{0.0};
 
     size_t _numArms;
-    /// Often called epsilon
-    double _temperature;
     std::vector<double> _totalReward;
     std::vector<double> _averageReward;
     std::vector<size_t> _armTotalCount;
-
-    static size_t randomArm(std::vector<double>& weights);
-
 public:
-    explicit Bandit(size_t numArms, double temperature = 0.1, double learningRate = 0.1);
+    explicit AbstractBandit(size_t numArms);
+    virtual ~AbstractBandit() = default;
 
-    virtual ~Bandit() = default;
-    void updateReward(size_t arm, double reward);
-    void updateRewardUCB(size_t arm, double reward, double beta=1.0);
-    [[nodiscard]] size_t bestArm() const;
-    [[nodiscard]] size_t randomArm() const;
-    [[nodiscard]] size_t softMax(double tau = 0.1) const;
-
-    size_t thompson() const;
+    [[nodiscard]] virtual size_t getArm() const = 0;
+    virtual void updateReward(size_t arm, double reward);
 };
 
+class GreedyBandit : public AbstractBandit {
+protected:
+    mutable std::mt19937_64 _rng;
+    double _temperature; /// Often called epsilon
+
+public:
+    explicit GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
+    size_t getArm() const override;
+};
+
+class UCBBandit : public AbstractBandit {
+public:
+    explicit UCBBandit(size_t numArms);
+    size_t getArm() const override;
+};
+
+class SoftMaxBandit : public AbstractBandit {
+protected:
+    mutable std::mt19937_64 _rng;
+    double _temperature; /// Often called tau
+
+public:
+    explicit SoftMaxBandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
+    size_t getArm() const override;
+};
+
+class ThompsonBandit : public AbstractBandit {
+protected:
+    mutable std::mt19937_64 _rng;
+public:
+    explicit ThompsonBandit(size_t numArms, std::uint64_t rng_seed);
+    size_t getArm() const override;
+};
 
 class AssetExecutor : public Gecode::Support::Runnable {
     /// The common controller for running tests
@@ -643,7 +666,7 @@ public:
     unsigned int _finishedAsset{std::numeric_limits<unsigned int>::max()};
 
     std::mutex _banditMutex;
-    std::unique_ptr<Bandit> _bandit;
+    std::unique_ptr<AbstractBandit> _bandit;
 
     bool updateBestSolution(const std::shared_ptr<FlatZincSpace> &sol, unsigned int asset_id);
 

@@ -395,7 +395,7 @@ void SearchController::updateMultiArmedBandit() {
             }
         }
     }
-    _bandit = std::make_unique<Bandit>(numArms);
+    _bandit = std::make_unique<GreedyBandit>(numArms, 42);
     _banditMutex.unlock();
 }
 
@@ -527,42 +527,70 @@ void SearchController::run() {
 // ########################################################################
 //                         Multi Armed Bandit below.
 // ########################################################################
-Bandit::Bandit(const size_t numArms, const double temperature, const double learningRate) :
-    _numArms(numArms),
-    _temperature(temperature),
-    _totalReward(numArms, 0.0),
-    _averageReward(numArms, 0.0),
-    _armTotalCount(numArms, 0) {}
 
-size_t Bandit::randomArm(std::vector<double>& weights) {
-    std::random_device rd;
-    std::mt19937_64 generator(rd());
-    auto distro = std::discrete_distribution<size_t>(weights.begin(), weights.end());
-    return distro(generator);
+// Default Bandit behaviour below.
+AbstractBandit::AbstractBandit(const size_t numArms)
+    : _numArms(numArms),
+      _totalReward(numArms, 0.0),
+      _averageReward(numArms, 0.0),
+      _armTotalCount(numArms, 0) {}
+
+void AbstractBandit::updateReward(const size_t arm, const double reward) {
+    assert(arm < _numArms);
+    ++_totalCount;
+    ++_armTotalCount[arm];
+    _totalReward[arm] += reward;
+    _averageReward[arm] = _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
 }
 
 
-size_t Bandit::randomArm() const {
-    std::random_device rd;
-    std::mt19937_64 generator(rd());
+// Greedy Bandit Below.
+GreedyBandit::GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature)
+    : AbstractBandit(numArms),
+    _rng(rng_seed),
+    _temperature(temperature){}
 
-    std::uniform_real_distribution<double> epsilon_distro(0, 1);
-    const double rand_num = epsilon_distro(generator);
+size_t GreedyBandit::getArm() const {
+    std::uniform_real_distribution epsilon_distro(0.0, 1.0);
+    const double rand_num = epsilon_distro(_rng);
 
     if (rand_num < _temperature) {
         //random action
         std::uniform_int_distribution<size_t> action_distro(0, _numArms - 1);
-        return action_distro(generator);
+        return action_distro(_rng);
     }
     //greedy action
     return std::distance(_averageReward.begin(), std::max_element(_averageReward.begin(), _averageReward.end()));
 }
 
-size_t Bandit::softMax(const double tau) const {
+// UCB Bandit Below.
+UCBBandit::UCBBandit(const size_t numArms)
+    : AbstractBandit(numArms){}
 
+size_t UCBBandit::getArm() const {
+    double best_reward = 0.0;
+    size_t best_arm = 0;
+    for (size_t arm = 0; arm < _numArms; arm++) {
+        const double ucb_radius = sqrt(2.0 * log(static_cast<double>(_totalCount)) / static_cast<double>(_armTotalCount[arm]));
+        const double reward = _averageReward[arm] + ucb_radius;
+        if (reward > best_reward) {
+            best_arm = arm;
+            best_reward = reward;
+        }
+    }
+    return best_arm;
+}
+
+// SoftMax Bandit below.
+SoftMaxBandit::SoftMaxBandit(size_t numArms, std::uint64_t rng_seed, double temperature)
+    : AbstractBandit(numArms),
+    _rng(rng_seed),
+    _temperature(temperature){}
+
+size_t SoftMaxBandit::getArm() const {
     std::vector<double> weights(_numArms);
     for (size_t i = 0; i < _numArms; i++) {
-        weights[i] = exp(_averageReward[i] / tau);
+        weights[i] = exp(_averageReward[i] / _temperature);
     }
 
     double denominator = 0;
@@ -573,46 +601,24 @@ size_t Bandit::softMax(const double tau) const {
         weights[i] /= denominator;
     }
 
-    return randomArm(weights);
-
+    auto distro = std::discrete_distribution<size_t>(weights.begin(), weights.end());
+    return distro(_rng);
 }
 
-size_t Bandit::thompson() const{
-    std::random_device rd;
-    std::mt19937_64 generator(rd());
+// Thompson Bandit below.
+ThompsonBandit::ThompsonBandit(const size_t numArms,  std::uint64_t rng_seed)
+    : AbstractBandit(numArms) {}
 
+size_t ThompsonBandit::getArm() const {
     std::vector<double> gamma_draws(_numArms);
     for (size_t i = 0; i < _numArms; i++) {
         //The number of solutions found is modeled as an unknown Poisson process.
         //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
         std::gamma_distribution gamma(1 + _totalReward[i], 0.1 + static_cast<double>(_armTotalCount[i]));
-        gamma_draws[i] = gamma(generator);
+        gamma_draws[i] = gamma(_rng);
     }
 
     return std::distance(gamma_draws.begin(), std::max_element(gamma_draws.begin(), gamma_draws.end()));
-}
-
-void Bandit::updateReward(const size_t arm, const double reward) {
-    assert(arm < _numArms);
-    ++_totalCount;
-    ++_armTotalCount[arm];
-    _totalReward[arm] += reward;
-    _averageReward[arm] += _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
-}
-
-void Bandit::updateRewardUCB(const size_t arm, const double reward, const double beta) {
-    assert(arm < _numArms);
-    ++_totalCount;
-    ++_armTotalCount[arm];
-    _ucb = sqrt(2 * beta * log(static_cast<double>(_armTotalCount[arm]) / static_cast<double>(_armTotalCount[arm])));
-    const double ucbReward = reward + _ucb;
-    _totalReward[arm] += ucbReward;
-    _averageReward[arm] = _totalReward[arm]/static_cast<double>(_armTotalCount[arm]);
-}
-
-
-size_t Bandit::bestArm() const {
-    return std::distance(_averageReward.begin(), std::max_element(_averageReward.begin(), _averageReward.end()));
 }
 
 // ########################################################################
@@ -1054,7 +1060,7 @@ void BanditArmAsset::updateBanditArmId() {
         _searchController._bandit->updateReward(_banditArmId, static_cast<double>(_numCurSolutions));
     }
     // get new arm
-    _banditArmId = _searchController._bandit->thompson();
+    _banditArmId = _searchController._bandit->getArm();
     // update local parameters
     _assetType = _searchController.assetType(_banditArmId, false);
     _useSelfSubsumingPropagators = _searchController.useSelfSubsumingPropagators(_banditArmId, false);
