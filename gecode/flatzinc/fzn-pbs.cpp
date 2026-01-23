@@ -395,7 +395,7 @@ void SearchController::updateMultiArmedBandit() {
             }
         }
     }
-    _bandit = std::make_unique<GreedyBandit>(numArms, 42);
+    _bandit = std::make_unique<UCBBandit>(numArms);
     _banditMutex.unlock();
 }
 
@@ -530,23 +530,15 @@ void SearchController::run() {
 
 // Default Bandit behaviour below.
 AbstractBandit::AbstractBandit(const size_t numArms)
-    : _numArms(numArms),
-      _totalReward(numArms, 0.0),
-      _averageReward(numArms, 0.0),
-      _armTotalCount(numArms, 0) {}
-
-void AbstractBandit::updateReward(const size_t arm, const double reward) {
-    assert(arm < _numArms);
-    ++_totalCount;
-    ++_armTotalCount[arm];
-    _totalReward[arm] += reward;
-    _averageReward[arm] = _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
-}
+    : _numArms(numArms) {}
 
 
 // Greedy Bandit Below.
 GreedyBandit::GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature)
     : AbstractBandit(numArms),
+    _totalReward(numArms, 0.0),
+    _averageReward(numArms, 0.0),
+    _armTotalCount(numArms, 0),
     _rng(rng_seed),
     _temperature(temperature){}
 
@@ -563,11 +555,26 @@ size_t GreedyBandit::getArm() const {
     return std::distance(_averageReward.begin(), std::max_element(_averageReward.begin(), _averageReward.end()));
 }
 
+void GreedyBandit::updateReward(const size_t arm, const size_t wins) {
+    assert(arm < _numArms);
+    const double reward = std::tanh(wins); // sigmoid, maps to [0,1)
+    ++_totalCount;
+    ++_armTotalCount[arm];
+    _totalReward[arm] += reward;
+    _averageReward[arm] = _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
+}
+
 // UCB Bandit Below.
 UCBBandit::UCBBandit(const size_t numArms)
-    : AbstractBandit(numArms){}
+    : AbstractBandit(numArms),
+    _totalReward(numArms, 0.0),
+    _averageReward(numArms, 0.0),
+    _armTotalCount(numArms, 0){}
 
 size_t UCBBandit::getArm() const {
+    if (_totalCount < _numArms) {
+        return _totalCount; // "Warm-up:" Try each arm once
+    }
     double best_reward = 0.0;
     size_t best_arm = 0;
     for (size_t arm = 0; arm < _numArms; arm++) {
@@ -581,9 +588,21 @@ size_t UCBBandit::getArm() const {
     return best_arm;
 }
 
+void UCBBandit::updateReward(const size_t arm, const size_t wins) {
+    assert(arm < _numArms);
+    const double reward = std::tanh(wins); // sigmoid, maps to [0,1)
+    ++_totalCount;
+    ++_armTotalCount[arm];
+    _totalReward[arm] += reward;
+    _averageReward[arm] = _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
+}
+
 // SoftMax Bandit below.
-SoftMaxBandit::SoftMaxBandit(size_t numArms, std::uint64_t rng_seed, double temperature)
+SoftMaxBandit::SoftMaxBandit(const size_t numArms, const std::uint64_t rng_seed, const double temperature)
     : AbstractBandit(numArms),
+    _totalReward(numArms, 0.0),
+    _averageReward(numArms, 0.0),
+    _armTotalCount(numArms, 0),
     _rng(rng_seed),
     _temperature(temperature){}
 
@@ -592,33 +611,126 @@ size_t SoftMaxBandit::getArm() const {
     for (size_t i = 0; i < _numArms; i++) {
         weights[i] = exp(_averageReward[i] / _temperature);
     }
-
-    double denominator = 0;
-    for (size_t i = 0; i < _numArms; i++) {
-        denominator += weights[i];
-    }
-    for (size_t i = 0; i < _numArms; i++) {
-        weights[i] /= denominator;
-    }
-
+    // no need to divide by sum of weights, discrete_distribution does this
     auto distro = std::discrete_distribution<size_t>(weights.begin(), weights.end());
     return distro(_rng);
 }
 
+void SoftMaxBandit::updateReward(const size_t arm, const size_t wins) {
+    assert(arm < _numArms);
+    const double reward = std::tanh(wins); // sigmoid, maps to [0,1)
+    ++_totalCount;
+    ++_armTotalCount[arm];
+    _totalReward[arm] += reward;
+    _averageReward[arm] = _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
+}
+
 // Thompson Bandit below.
 ThompsonBandit::ThompsonBandit(const size_t numArms,  std::uint64_t rng_seed)
-    : AbstractBandit(numArms) {}
+    : AbstractBandit(numArms),
+    _armTotalWins(numArms, 0.0),
+    _armTotalCount(numArms, 0),
+    _rng(rng_seed){}
 
 size_t ThompsonBandit::getArm() const {
     std::vector<double> gamma_draws(_numArms);
     for (size_t i = 0; i < _numArms; i++) {
         //The number of solutions found is modeled as an unknown Poisson process.
         //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
-        std::gamma_distribution gamma(1 + _totalReward[i], 0.1 + static_cast<double>(_armTotalCount[i]));
+        std::gamma_distribution gamma(1.0 + _armTotalWins[i], 0.1 + static_cast<double>(_armTotalCount[i]));
         gamma_draws[i] = gamma(_rng);
     }
 
     return std::distance(gamma_draws.begin(), std::max_element(gamma_draws.begin(), gamma_draws.end()));
+}
+
+void ThompsonBandit::updateReward(const size_t arm, const size_t wins) {
+    assert(arm < _numArms);
+    ++_armTotalCount[arm];
+    _armTotalWins[arm] += wins; // no sigmoid
+}
+
+//#######################
+// Non-stationary Bandits
+//#######################
+
+SlidingWindowUCBBandit::SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta)
+    : AbstractBandit(numArms),
+    _window_size(window_size),
+    _eta(eta)
+    {}
+
+size_t SlidingWindowUCBBandit::getArm() const {
+    if (_observations.size() < _numArms) {
+        return _observations.size(); // "Warm-up:" Try each arm once
+    }
+    for (size_t arm = 0; arm < _numArms; arm++) {
+        if (_armTotalCount[arm] == 0) {
+            return arm; // Arm fell out of window, gather new info
+        }
+    }
+    double best_reward = 0.0;
+    size_t best_arm = 0;
+
+    for (size_t arm = 0; arm < _numArms; arm++) {
+        const double padding = sqrt(_eta * log(_observations.size()) / static_cast<double>(_armTotalCount[arm]));
+        const double reward = _averageReward[arm] + padding;
+        if (reward > best_reward) {
+            best_reward = reward;
+            best_arm = arm;
+        }
+    }
+    return best_arm;
+}
+
+void SlidingWindowUCBBandit::updateReward(size_t arm, size_t wins) {
+
+    if (_observations.size() >= _window_size) {
+        auto [old_arm, old_reward] = _observations.front();
+        _totalReward[old_arm] -= old_reward;
+        _armTotalCount[old_arm] -= 1;
+        if (_armTotalCount[old_arm] > 0) {
+            _averageReward[old_arm] = _totalReward[old_arm] / static_cast<double>(_armTotalCount[old_arm]);
+        } else {
+            _averageReward[old_arm] = 0;
+        }
+        _observations.pop();
+    }
+    const double reward = std::tanh(wins); // sigmoid, maps to [0,1)
+    _observations.push(std::pair(arm, reward));
+    ++_armTotalCount[arm];
+    _totalReward[arm] += reward;
+    _averageReward[arm] = _totalReward[arm] / static_cast<double>(_armTotalCount[arm]);
+}
+
+// Discounted Thompson Bandit below.
+DiscountedThompsonBandit::DiscountedThompsonBandit(const size_t numArms,  const std::uint64_t rng_seed, const double discount_factor)
+    : AbstractBandit(numArms),
+    _rng(rng_seed),
+    _discount_factor(discount_factor),
+    _alphas(numArms, 0),
+    _betas(numArms, 0) {}
+
+size_t DiscountedThompsonBandit::getArm() const {
+    std::vector<double> gamma_draws(_numArms);
+    for (size_t i = 0; i < _numArms; i++) {
+        //The number of solutions found is modeled as an unknown Poisson process.
+        //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
+        std::gamma_distribution gamma(1 + _alphas[i], 0.1 + _betas[i]);
+        gamma_draws[i] = gamma(_rng);
+    }
+
+    return std::distance(gamma_draws.begin(), std::max_element(gamma_draws.begin(), gamma_draws.end()));
+}
+
+void DiscountedThompsonBandit::updateReward(const size_t arm, const size_t wins) {
+    assert(arm < _numArms);
+    for (size_t i = 0; i < _numArms; i++) {
+        _alphas[i] *= _discount_factor;
+        _betas[i] *= _discount_factor;
+    }
+    _alphas[arm] += wins;
+    _betas[arm] += 1;
 }
 
 // ########################################################################

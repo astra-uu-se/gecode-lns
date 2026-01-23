@@ -16,6 +16,7 @@
 #include <string>
 #include <sstream>
 #include <limits>
+#include <queue>
 #include <unordered_set>
 #include <bits/random.h>
 
@@ -235,52 +236,100 @@ public:
 
 class AbstractBandit {
 protected:
-    size_t _totalCount{0};
-
     size_t _numArms;
-    std::vector<double> _totalReward;
-    std::vector<double> _averageReward;
-    std::vector<size_t> _armTotalCount;
 public:
     explicit AbstractBandit(size_t numArms);
     virtual ~AbstractBandit() = default;
 
     [[nodiscard]] virtual size_t getArm() const = 0;
-    virtual void updateReward(size_t arm, double reward);
+
+    virtual void updateReward(size_t arm, size_t wins) = 0;
 };
 
 class GreedyBandit : public AbstractBandit {
 protected:
+    size_t _totalCount{0};
+    std::vector<double> _totalReward;
+    std::vector<double> _averageReward;
+    std::vector<size_t> _armTotalCount;
+
     mutable std::mt19937_64 _rng;
     double _temperature; /// Often called epsilon
 
 public:
     explicit GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
     size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
 };
 
 class UCBBandit : public AbstractBandit {
+protected:
+    size_t _totalCount{0};
+    std::vector<double> _totalReward;
+    std::vector<double> _averageReward;
+    std::vector<size_t> _armTotalCount;
 public:
     explicit UCBBandit(size_t numArms);
     size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
 };
 
 class SoftMaxBandit : public AbstractBandit {
 protected:
+    size_t _totalCount{0};
+    std::vector<double> _totalReward;
+    std::vector<double> _averageReward;
+    std::vector<size_t> _armTotalCount;
+
     mutable std::mt19937_64 _rng;
     double _temperature; /// Often called tau
 
 public:
     explicit SoftMaxBandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
     size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
 };
 
 class ThompsonBandit : public AbstractBandit {
 protected:
+    std::vector<size_t> _armTotalWins;
+    std::vector<size_t> _armTotalCount;
+
     mutable std::mt19937_64 _rng;
 public:
     explicit ThompsonBandit(size_t numArms, std::uint64_t rng_seed);
     size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class SlidingWindowUCBBandit : public AbstractBandit {
+protected:
+
+    std::vector<double> _totalReward;
+    std::vector<double> _averageReward;
+    std::vector<size_t> _armTotalCount;
+
+    size_t _window_size;
+    std::queue<std::pair<size_t, double>> _observations;
+    double _eta; // "some appropriate constant"
+
+public:
+    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta = 0.95);
+    size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class DiscountedThompsonBandit : public AbstractBandit {
+protected:
+    mutable std::mt19937_64 _rng;
+    double _discount_factor;
+    std::vector<double> _alphas;
+    std::vector<double> _betas;
+
+public:
+    explicit DiscountedThompsonBandit(size_t numArms, std::uint64_t rng_seed, double discount_factor = 0.95);
+    size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
 };
 
 class AssetExecutor : public Gecode::Support::Runnable {
