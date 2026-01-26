@@ -311,10 +311,10 @@ protected:
 
     size_t _window_size;
     std::queue<std::pair<size_t, double>> _observations;
-    double _eta; // "some appropriate constant"
+    double _eta; // "some appropriate constant," try values in (0.5, 2]
 
 public:
-    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta = 0.95);
+    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta = 0.501);
     size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
@@ -322,12 +322,44 @@ public:
 class DiscountedThompsonBandit : public AbstractBandit {
 protected:
     mutable std::mt19937_64 _rng;
-    double _discount_factor;
+    double _prior_alpha;
+    double _prior_beta;
     std::vector<double> _alphas;
     std::vector<double> _betas;
+    double _discount_factor;
 
 public:
-    explicit DiscountedThompsonBandit(size_t numArms, std::uint64_t rng_seed, double discount_factor = 0.95);
+    explicit DiscountedThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95);
+    std::vector<double> getSamples() const;
+    size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class SlidingWindowThompsonBandit : public AbstractBandit {
+protected:
+    mutable std::mt19937_64 _rng;
+    double _prior_alpha;
+    double _prior_beta;
+    std::vector<double> _alphas;
+    std::vector<double> _betas;
+    size_t _window_size;
+    std::queue<std::pair<size_t, size_t>> _observations;
+
+public:
+    explicit SlidingWindowThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, size_t window_size = 100);
+    std::vector<double> getSamples() const;
+    size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class FDiscountedSlidingWindowThompsonSamplingBandit : public AbstractBandit {
+protected:
+    mutable std::mt19937_64 _rng;
+    DiscountedThompsonBandit _discounted_bandit;
+    SlidingWindowThompsonBandit _sliding_window_bandit;
+
+public:
+    explicit FDiscountedSlidingWindowThompsonSamplingBandit(size_t numArms, std::uint64_t rng_seed,double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95, size_t window_size = 100);
     size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };

@@ -395,7 +395,7 @@ void SearchController::updateMultiArmedBandit() {
             }
         }
     }
-    _bandit = std::make_unique<UCBBandit>(numArms);
+    _bandit = std::make_unique<FDiscountedSlidingWindowThompsonSamplingBandit>(numArms, 42);
     _banditMutex.unlock();
 }
 
@@ -654,7 +654,7 @@ void ThompsonBandit::updateReward(const size_t arm, const size_t wins) {
 // Non-stationary Bandits
 //#######################
 
-SlidingWindowUCBBandit::SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta)
+SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double eta)
     : AbstractBandit(numArms),
     _window_size(window_size),
     _eta(eta)
@@ -674,8 +674,7 @@ size_t SlidingWindowUCBBandit::getArm() const {
 
     for (size_t arm = 0; arm < _numArms; arm++) {
         const double padding = sqrt(_eta * log(_observations.size()) / static_cast<double>(_armTotalCount[arm]));
-        const double reward = _averageReward[arm] + padding;
-        if (reward > best_reward) {
+        if (const double reward = _averageReward[arm] + padding; reward > best_reward) {
             best_reward = reward;
             best_arm = arm;
         }
@@ -683,17 +682,16 @@ size_t SlidingWindowUCBBandit::getArm() const {
     return best_arm;
 }
 
-void SlidingWindowUCBBandit::updateReward(size_t arm, size_t wins) {
+void SlidingWindowUCBBandit::updateReward(const size_t arm, const size_t wins) {
 
     if (_observations.size() >= _window_size) {
         auto [old_arm, old_reward] = _observations.front();
         _totalReward[old_arm] -= old_reward;
         _armTotalCount[old_arm] -= 1;
-        if (_armTotalCount[old_arm] > 0) {
-            _averageReward[old_arm] = _totalReward[old_arm] / static_cast<double>(_armTotalCount[old_arm]);
-        } else {
-            _averageReward[old_arm] = 0;
-        }
+
+        // NaN if _armTotalCount == 0, but in that case we force a pull on this arm without using this number:
+        _averageReward[old_arm] = _totalReward[old_arm] / static_cast<double>(_armTotalCount[old_arm]);
+
         _observations.pop();
     }
     const double reward = std::tanh(wins); // sigmoid, maps to [0,1)
@@ -704,23 +702,29 @@ void SlidingWindowUCBBandit::updateReward(size_t arm, size_t wins) {
 }
 
 // Discounted Thompson Bandit below.
-DiscountedThompsonBandit::DiscountedThompsonBandit(const size_t numArms,  const std::uint64_t rng_seed, const double discount_factor)
+DiscountedThompsonBandit::DiscountedThompsonBandit(const size_t numArms,  const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta, const double discount_factor)
     : AbstractBandit(numArms),
     _rng(rng_seed),
-    _discount_factor(discount_factor),
+    _prior_alpha(prior_alpha),
+    _prior_beta(prior_beta),
     _alphas(numArms, 0),
-    _betas(numArms, 0) {}
+    _betas(numArms, 0),
+    _discount_factor(discount_factor) {}
 
-size_t DiscountedThompsonBandit::getArm() const {
-    std::vector<double> gamma_draws(_numArms);
+std::vector<double> DiscountedThompsonBandit::getSamples() const {
+    std::vector<double> gamma_samples(_numArms);
     for (size_t i = 0; i < _numArms; i++) {
         //The number of solutions found is modeled as an unknown Poisson process.
         //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
         std::gamma_distribution gamma(1 + _alphas[i], 0.1 + _betas[i]);
-        gamma_draws[i] = gamma(_rng);
+        gamma_samples[i] = gamma(_rng);
     }
+    return gamma_samples;
+}
 
-    return std::distance(gamma_draws.begin(), std::max_element(gamma_draws.begin(), gamma_draws.end()));
+size_t DiscountedThompsonBandit::getArm() const {
+    std::vector<double> gamma_samples = getSamples();
+    return std::distance(gamma_samples.begin(), std::max_element(gamma_samples.begin(), gamma_samples.end()));
 }
 
 void DiscountedThompsonBandit::updateReward(const size_t arm, const size_t wins) {
@@ -731,6 +735,69 @@ void DiscountedThompsonBandit::updateReward(const size_t arm, const size_t wins)
     }
     _alphas[arm] += wins;
     _betas[arm] += 1;
+}
+
+// Sliding Window Thompson Bandit below.
+SlidingWindowThompsonBandit::SlidingWindowThompsonBandit(const size_t numArms, const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta, const size_t window_size)
+    : AbstractBandit(numArms),
+    _rng(rng_seed),
+    _prior_alpha(prior_alpha),
+    _prior_beta(prior_beta),
+    _alphas(numArms, 0),
+    _betas(numArms, 0),
+    _window_size(window_size) {}
+
+std::vector<double> SlidingWindowThompsonBandit::getSamples() const {
+    std::vector<double> gamma_samples(_numArms);
+    for (size_t i = 0; i < _numArms; i++) {
+        std::gamma_distribution gamma(1 + _alphas[i], 0.1 + _betas[i]);
+        gamma_samples[i] = gamma(_rng);
+    }
+    return gamma_samples;
+}
+
+size_t SlidingWindowThompsonBandit::getArm() const {
+    std::vector<double> gamma_samples = getSamples();
+    return std::distance(gamma_samples.begin(), std::max_element(gamma_samples.begin(), gamma_samples.end()));
+}
+
+void SlidingWindowThompsonBandit::updateReward(const size_t arm, const size_t wins) {
+    if (_observations.size() >= _window_size) {
+        auto [old_arm, old_wins] = _observations.front();
+        _alphas[old_arm] -= old_wins;
+        _betas[old_arm] -= 1.0;
+        _observations.pop();
+    }
+    _alphas[arm] += wins;
+    _betas[arm] += 1;
+    _observations.push(std::pair(arm, wins));
+}
+
+// f-Discounted-Sliding-Window Thompson Sampling Bandit below.
+FDiscountedSlidingWindowThompsonSamplingBandit::FDiscountedSlidingWindowThompsonSamplingBandit(const size_t numArms, const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta, const double discount_factor, const size_t window_size)
+    : AbstractBandit(numArms),
+    _discounted_bandit(numArms, rng_seed, prior_alpha, prior_beta, discount_factor),
+    _sliding_window_bandit(numArms, rng_seed, prior_alpha, prior_beta, window_size) {}
+
+size_t FDiscountedSlidingWindowThompsonSamplingBandit::getArm() const {
+    const auto d_samples = _discounted_bandit.getSamples();
+    const auto sw_samples = _sliding_window_bandit.getSamples();
+
+    // the "f" in f-DSW-TS (options to try -- max, min, mean.. assuming rewards decrease, min is likely best):
+    auto f = [](const double a, const double b) { return min(a,b); };
+
+    std::vector f_samples(_numArms, 0.0);
+
+    for (size_t i = 0; i < _numArms; i++) {
+        f_samples[i] = f(d_samples[i], sw_samples[i]);
+    }
+
+    return std::distance(f_samples.begin(), std::max_element(f_samples.begin(), f_samples.end()));
+}
+
+void FDiscountedSlidingWindowThompsonSamplingBandit::updateReward(const size_t arm, const size_t wins) {
+    _discounted_bandit.updateReward(arm, wins);
+    _sliding_window_bandit.updateReward(arm, wins);
 }
 
 // ########################################################################
