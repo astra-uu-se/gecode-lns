@@ -524,23 +524,26 @@ void SearchController::run() {
     // Delete allocated arrays in fzs.
     _flatZincSpace->deletePBSArrays();
 }
+
 // ########################################################################
 //                         Multi Armed Bandit below.
 // ########################################################################
 
 // Default Bandit behaviour below.
 AbstractBandit::AbstractBandit(const size_t numArms)
-    : _numArms(numArms) {}
+    : _numArms(numArms) {
+}
 
 
 // Greedy Bandit Below.
 GreedyBandit::GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature)
     : AbstractBandit(numArms),
-    _totalReward(numArms, 0.0),
-    _averageReward(numArms, 0.0),
-    _armTotalCount(numArms, 0),
-    _rng(rng_seed),
-    _temperature(temperature){}
+      _totalReward(numArms, 0.0),
+      _averageReward(numArms, 0.0),
+      _armTotalCount(numArms, 0),
+      _rng(rng_seed),
+      _temperature(temperature) {
+}
 
 size_t GreedyBandit::getArm() const {
     std::uniform_real_distribution epsilon_distro(0.0, 1.0);
@@ -567,9 +570,10 @@ void GreedyBandit::updateReward(const size_t arm, const size_t wins) {
 // UCB Bandit Below.
 UCBBandit::UCBBandit(const size_t numArms)
     : AbstractBandit(numArms),
-    _totalReward(numArms, 0.0),
-    _averageReward(numArms, 0.0),
-    _armTotalCount(numArms, 0){}
+      _totalReward(numArms, 0.0),
+      _averageReward(numArms, 0.0),
+      _armTotalCount(numArms, 0) {
+}
 
 size_t UCBBandit::getArm() const {
     if (_totalCount < _numArms) {
@@ -578,7 +582,8 @@ size_t UCBBandit::getArm() const {
     double best_reward = 0.0;
     size_t best_arm = 0;
     for (size_t arm = 0; arm < _numArms; arm++) {
-        const double ucb_radius = sqrt(2.0 * log(static_cast<double>(_totalCount)) / static_cast<double>(_armTotalCount[arm]));
+        const double ucb_radius = sqrt(
+            2.0 * log(static_cast<double>(_totalCount)) / static_cast<double>(_armTotalCount[arm]));
         const double reward = _averageReward[arm] + ucb_radius;
         if (reward > best_reward) {
             best_arm = arm;
@@ -600,11 +605,12 @@ void UCBBandit::updateReward(const size_t arm, const size_t wins) {
 // SoftMax Bandit below.
 SoftMaxBandit::SoftMaxBandit(const size_t numArms, const std::uint64_t rng_seed, const double temperature)
     : AbstractBandit(numArms),
-    _totalReward(numArms, 0.0),
-    _averageReward(numArms, 0.0),
-    _armTotalCount(numArms, 0),
-    _rng(rng_seed),
-    _temperature(temperature){}
+      _totalReward(numArms, 0.0),
+      _averageReward(numArms, 0.0),
+      _armTotalCount(numArms, 0),
+      _rng(rng_seed),
+      _temperature(temperature) {
+}
 
 size_t SoftMaxBandit::getArm() const {
     std::vector<double> weights(_numArms);
@@ -626,11 +632,12 @@ void SoftMaxBandit::updateReward(const size_t arm, const size_t wins) {
 }
 
 // Thompson Bandit below.
-ThompsonBandit::ThompsonBandit(const size_t numArms,  std::uint64_t rng_seed)
+ThompsonBandit::ThompsonBandit(const size_t numArms, std::uint64_t rng_seed)
     : AbstractBandit(numArms),
-    _armTotalWins(numArms, 0.0),
-    _armTotalCount(numArms, 0),
-    _rng(rng_seed){}
+      _armTotalWins(numArms, 0.0),
+      _armTotalCount(numArms, 0),
+      _rng(rng_seed) {
+}
 
 size_t ThompsonBandit::getArm() const {
     std::vector<double> gamma_draws(_numArms);
@@ -656,9 +663,9 @@ void ThompsonBandit::updateReward(const size_t arm, const size_t wins) {
 
 SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double eta)
     : AbstractBandit(numArms),
-    _window_size(window_size),
-    _eta(eta)
-    {}
+      _window_size(window_size),
+      _eta(eta) {
+}
 
 size_t SlidingWindowUCBBandit::getArm() const {
     if (_observations.size() < _numArms) {
@@ -683,7 +690,6 @@ size_t SlidingWindowUCBBandit::getArm() const {
 }
 
 void SlidingWindowUCBBandit::updateReward(const size_t arm, const size_t wins) {
-
     if (_observations.size() >= _window_size) {
         auto [old_arm, old_reward] = _observations.front();
         _totalReward[old_arm] -= old_reward;
@@ -702,14 +708,17 @@ void SlidingWindowUCBBandit::updateReward(const size_t arm, const size_t wins) {
 }
 
 // Discounted Thompson Bandit below.
-DiscountedThompsonBandit::DiscountedThompsonBandit(const size_t numArms,  const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta, const double discount_factor)
+DiscountedThompsonBandit::DiscountedThompsonBandit(const size_t numArms, const std::uint64_t rng_seed,
+                                                   const double prior_alpha, const double prior_beta,
+                                                   const double discount_factor)
     : AbstractBandit(numArms),
-    _rng(rng_seed),
-    _prior_alpha(prior_alpha),
-    _prior_beta(prior_beta),
-    _alphas(numArms, 0),
-    _betas(numArms, 0),
-    _discount_factor(discount_factor) {}
+      _rng(rng_seed),
+      _prior_alpha(prior_alpha),
+      _prior_beta(prior_beta),
+      _alphas(numArms, 0),
+      _betas(numArms, 0),
+      _discount_factor(discount_factor) {
+}
 
 std::vector<double> DiscountedThompsonBandit::getSamples() const {
     std::vector<double> gamma_samples(_numArms);
@@ -738,14 +747,17 @@ void DiscountedThompsonBandit::updateReward(const size_t arm, const size_t wins)
 }
 
 // Sliding Window Thompson Bandit below.
-SlidingWindowThompsonBandit::SlidingWindowThompsonBandit(const size_t numArms, const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta, const size_t window_size)
+SlidingWindowThompsonBandit::SlidingWindowThompsonBandit(const size_t numArms, const std::uint64_t rng_seed,
+                                                         const double prior_alpha, const double prior_beta,
+                                                         const size_t window_size)
     : AbstractBandit(numArms),
-    _rng(rng_seed),
-    _prior_alpha(prior_alpha),
-    _prior_beta(prior_beta),
-    _alphas(numArms, 0),
-    _betas(numArms, 0),
-    _window_size(window_size) {}
+      _rng(rng_seed),
+      _prior_alpha(prior_alpha),
+      _prior_beta(prior_beta),
+      _alphas(numArms, 0),
+      _betas(numArms, 0),
+      _window_size(window_size) {
+}
 
 std::vector<double> SlidingWindowThompsonBandit::getSamples() const {
     std::vector<double> gamma_samples(_numArms);
@@ -774,17 +786,20 @@ void SlidingWindowThompsonBandit::updateReward(const size_t arm, const size_t wi
 }
 
 // f-Discounted-Sliding-Window Thompson Sampling Bandit below.
-FDiscountedSlidingWindowThompsonSamplingBandit::FDiscountedSlidingWindowThompsonSamplingBandit(const size_t numArms, const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta, const double discount_factor, const size_t window_size)
+FDiscountedSlidingWindowThompsonSamplingBandit::FDiscountedSlidingWindowThompsonSamplingBandit(
+    const size_t numArms, const std::uint64_t rng_seed, const double prior_alpha, const double prior_beta,
+    const double discount_factor, const size_t window_size)
     : AbstractBandit(numArms),
-    _discounted_bandit(numArms, rng_seed, prior_alpha, prior_beta, discount_factor),
-    _sliding_window_bandit(numArms, rng_seed, prior_alpha, prior_beta, window_size) {}
+      _discounted_bandit(numArms, rng_seed, prior_alpha, prior_beta, discount_factor),
+      _sliding_window_bandit(numArms, rng_seed, prior_alpha, prior_beta, window_size) {
+}
 
 size_t FDiscountedSlidingWindowThompsonSamplingBandit::getArm() const {
     const auto d_samples = _discounted_bandit.getSamples();
     const auto sw_samples = _sliding_window_bandit.getSamples();
 
     // the "f" in f-DSW-TS (options to try -- max, min, mean.. assuming rewards decrease, min is likely best):
-    auto f = [](const double a, const double b) { return min(a,b); };
+    auto f = [](const double a, const double b) { return min(a, b); };
 
     std::vector f_samples(_numArms, 0.0);
 
