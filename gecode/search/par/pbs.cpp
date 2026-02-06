@@ -36,8 +36,13 @@
 namespace Gecode { namespace Search { namespace Par {
 
   bool
-  AssetSearchStop::stop(const Statistics& s, const Options& o) {
+  PortfolioStop::stop(const Statistics& s, const Options& o) {
     return *tostop || ((so != nullptr) && so->stop(s,o));
+  }
+
+  bool
+  PortfolioStop::done() const {
+      return *tostop || ((so != nullptr) && so->done());
   }
 
 }}}

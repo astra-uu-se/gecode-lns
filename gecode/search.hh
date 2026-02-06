@@ -929,8 +929,10 @@ namespace Gecode { namespace Search {
     virtual Space* next(void) = 0;
     /// Return statistics
     virtual Statistics statistics(void) const = 0;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const = 0;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Constrain future solutions to be better than \a b (raises exception)
     virtual void constrain(const Space& b);
     /// Reset engine to restart at space \a s (does nothing)
@@ -964,8 +966,10 @@ namespace Gecode { namespace Search {
     virtual T* next(void);
     /// Return statistics
     virtual Statistics statistics(void) const;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Destructor
     virtual ~Base(void);
   private:
@@ -1262,16 +1266,16 @@ namespace Gecode {
    * \ingroup TaskModelSearch
    */
   template<class T, template<class> class E = DFS>
-  class AssetSearch : public Search::Base<T> {
+  class PBS : public Search::Base<T> {
     using Search::Base<T>::e;
   protected:
     /// The actual build function
     void build(T* s, SEBs& searchEngineBuilders, const Search::Options& o);
   public:
     /// Initialize with engines running copies of \a s with options \a o
-    AssetSearch(T* s, const Search::Options& o=Search::Options::def);
+    PBS(T* s, const Search::Options& o=Search::Options::def);
     /// Initialize with engine builders \a sebs
-    AssetSearch(T* s, SEBs& searchEngineBuilders, const Search::Options& o=Search::Options::def);
+    PBS(T* s, SEBs& searchEngineBuilders, const Search::Options& o=Search::Options::def);
     /// Whether engine does best solution search
     static const bool best = E<T>::best;
   };
@@ -1294,11 +1298,11 @@ namespace Gecode {
    * \ingroup TaskModelSearch
    */
   template<class T, template<class> class E>
-  T* assetSearch(T* s, const Search::Options& o=Search::Options::def);
+  T* pbs(T* s, const Search::Options& o=Search::Options::def);
 
   /// Return a portfolio search engine builder
   template<class T>
-  SEB assetSearch(const Search::Options& o=Search::Options::def);
+  SEB pbs(const Search::Options& o=Search::Options::def);
 
 }
 

@@ -518,7 +518,7 @@ namespace Test {
 
     /// %Test for portfolio-based search
     template<class Model, template<class> class Engine>
-    class AssetSearch : public Test {
+    class PBS : public Test {
     private:
       /// Whether best solution search is used
       bool best;
@@ -528,7 +528,7 @@ namespace Test {
       unsigned int t;
     public:
       /// Initialize test
-      AssetSearch(const std::string& e, bool b, unsigned int a0, unsigned int t0)
+      PBS(const std::string& e, bool b, unsigned int a0, unsigned int t0)
         : Test("PBS::"+e+"::"+Model::name()+"::"+str(a0)+"::"+str(t0),
                HTB_BINARY,HTB_BINARY,HTB_BINARY), best(b), a(a0), t(t0) {}
       /// Run test
@@ -540,15 +540,15 @@ namespace Test {
         o.numThreads = t;
         o.d_l = 100;
         o.stop = &f;
-        Gecode::AssetSearch<Model,Engine> assetSearch(m,o);
+        Gecode::PBS<Model,Engine> pbs(m,o);
         if (best) {
           Model* b = nullptr;
           while (true) {
-            Model* s = assetSearch.next();
+            Model* s = pbs.next();
             if (s != nullptr) {
               delete b; b=s;
             }
-            if ((s == nullptr) && !assetSearch.stopped())
+            if ((s == nullptr) && !pbs.stopped())
               break;
             f.limit(f.limit()+2);
           }
@@ -559,11 +559,11 @@ namespace Test {
           int n = ((t > 1) ? std::min(a,t) : a) * m->solutions();
           delete m;
           while (true) {
-            Model* s = assetSearch.next();
+            Model* s = pbs.next();
             if (s != nullptr) {
               n--; delete s;
             }
-            if ((s == nullptr) && !assetSearch.stopped())
+            if ((s == nullptr) && !pbs.stopped())
               break;
             f.limit(f.limit()+2);
           }
@@ -574,7 +574,7 @@ namespace Test {
 
     /// %Test for portfolio-based search using SEBs
     template<class Model>
-    class SEBAssetSearch : public Test {
+    class SEBPBS : public Test {
     private:
       /// Whether best solution search is used
       bool best;
@@ -584,7 +584,7 @@ namespace Test {
       unsigned int st;
     public:
       /// Initialize test
-      SEBAssetSearch(const std::string& e, bool b, unsigned int mt0, unsigned int st0)
+      SEBPBS(const std::string& e, bool b, unsigned int mt0, unsigned int st0)
         : Test("PBS::SEB::"+e+"::"+Model::name()+"::"+str(mt0)+"::"+str(st0),
                HTB_BINARY,HTB_BINARY,HTB_BINARY), best(b), mt(mt0), st(st0) {}
       /// Run test
@@ -607,16 +607,16 @@ namespace Test {
           sebs[0] = bab<Model>(so);
           sebs[1] = bab<Model>(so);
           sebs[2] = rbs<Model,Gecode::BAB>(so);
-          Gecode::AssetSearch<Model,Gecode::BAB> assetSearch(m, sebs, mo);
+          Gecode::PBS<Model,Gecode::BAB> pbs(m, sebs, mo);
           delete m;
 
           Model* b = nullptr;
           while (true) {
-            Model* s = assetSearch.next();
+            Model* s = pbs.next();
             if (s != nullptr) {
               delete b; b=s;
             }
-            if ((s == nullptr) && !assetSearch.stopped())
+            if ((s == nullptr) && !pbs.stopped())
               break;
             f.limit(f.limit()+2);
           }
@@ -628,17 +628,17 @@ namespace Test {
           sebs[0] = dfs<Model>(so);
           sebs[1] = lds<Model>(so);
           sebs[2] = rbs<Model,Gecode::DFS>(so);
-          Gecode::AssetSearch<Model,Gecode::DFS> assetSearch(m, sebs, mo);
+          Gecode::PBS<Model,Gecode::DFS> pbs(m, sebs, mo);
 
           int n = 3 * m->solutions();
           delete m;
 
           while (true) {
-            Model* s = assetSearch.next();
+            Model* s = pbs.next();
             if (s != nullptr) {
               n--; delete s;
             }
-            if ((s == nullptr) && !assetSearch.stopped())
+            if ((s == nullptr) && !pbs.stopped())
               break;
             f.limit(f.limit()+2);
           }
@@ -768,25 +768,25 @@ namespace Test {
         // Portfolio-based search
         for (unsigned int a=1; a<=4; a++)
           for (unsigned int t=1; t<=2*a; t++) {
-            (void) new AssetSearch<HasSolutions,Gecode::DFS>("DFS",false,a,t);
-            (void) new AssetSearch<HasSolutions,Gecode::LDS>("LDS",false,a,t);
-            (void) new AssetSearch<HasSolutions,Gecode::BAB>("BAB",true,a,t);
-            (void) new AssetSearch<FailImmediate,Gecode::DFS>("DFS",false,a,t);
-            (void) new AssetSearch<FailImmediate,Gecode::LDS>("LDS",false,a,t);
-            (void) new AssetSearch<FailImmediate,Gecode::BAB>("BAB",true,a,t);
-            (void) new AssetSearch<SolveImmediate,Gecode::DFS>("DFS",false,a,t);
-            (void) new AssetSearch<SolveImmediate,Gecode::LDS>("LDS",false,a,t);
-            (void) new AssetSearch<SolveImmediate,Gecode::BAB>("BAB",true,a,t);
+            (void) new PBS<HasSolutions,Gecode::DFS>("DFS",false,a,t);
+            (void) new PBS<HasSolutions,Gecode::LDS>("LDS",false,a,t);
+            (void) new PBS<HasSolutions,Gecode::BAB>("BAB",true,a,t);
+            (void) new PBS<FailImmediate,Gecode::DFS>("DFS",false,a,t);
+            (void) new PBS<FailImmediate,Gecode::LDS>("LDS",false,a,t);
+            (void) new PBS<FailImmediate,Gecode::BAB>("BAB",true,a,t);
+            (void) new PBS<SolveImmediate,Gecode::DFS>("DFS",false,a,t);
+            (void) new PBS<SolveImmediate,Gecode::LDS>("LDS",false,a,t);
+            (void) new PBS<SolveImmediate,Gecode::BAB>("BAB",true,a,t);
           }
         // Portfolio-based search using SEBs
         for (unsigned int mt=1; mt<=3; mt += 2)
           for (unsigned int st=1; st<=8; st++) {
-            (void) new SEBAssetSearch<HasSolutions>("BAB",true,mt,st);
-            (void) new SEBAssetSearch<FailImmediate>("BAB",true,mt,st);
-            (void) new SEBAssetSearch<SolveImmediate>("BAB",true,mt,st);
-            (void) new SEBAssetSearch<HasSolutions>("DFS+LDS",false,mt,st);
-            (void) new SEBAssetSearch<FailImmediate>("DFS+LDS",false,mt,st);
-            (void) new SEBAssetSearch<SolveImmediate>("DFS+LDS",false,mt,st);
+            (void) new SEBPBS<HasSolutions>("BAB",true,mt,st);
+            (void) new SEBPBS<FailImmediate>("BAB",true,mt,st);
+            (void) new SEBPBS<SolveImmediate>("BAB",true,mt,st);
+            (void) new SEBPBS<HasSolutions>("DFS+LDS",false,mt,st);
+            (void) new SEBPBS<FailImmediate>("DFS+LDS",false,mt,st);
+            (void) new SEBPBS<SolveImmediate>("DFS+LDS",false,mt,st);
           }
       }
     };

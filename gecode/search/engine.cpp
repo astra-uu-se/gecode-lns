@@ -40,6 +40,9 @@ namespace Gecode { namespace Search {
     (void) b;
     throw NoBest("Engine::constrain");
   }
+  bool Engine::alwaysStops(void) const {
+    return false;
+  }
   void
   Engine::reset(std::shared_ptr<Space> s) {
     (void) s;

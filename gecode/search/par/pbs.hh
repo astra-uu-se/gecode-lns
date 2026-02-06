@@ -39,7 +39,7 @@
 namespace Gecode { namespace Search { namespace Par {
 
   /// Stop object used for controlling slaves in a portfolio
-  class GECODE_SEARCH_EXPORT AssetSearchStop : public Stop {
+  class GECODE_SEARCH_EXPORT PortfolioStop : public Stop {
   private:
     /// The stop object for the slaves
     Stop* so;
@@ -47,7 +47,7 @@ namespace Gecode { namespace Search { namespace Par {
     std::shared_ptr<const bool> tostop;
   public:
     /// Initialize
-    explicit AssetSearchStop(Stop* so);
+    explicit PortfolioStop(Stop* so);
     /// Set pointer to shared \a tostop variable
     void share(std::shared_ptr<const bool> ts);
     /// Return true if portfolio engine must be stopped
@@ -60,25 +60,27 @@ namespace Gecode { namespace Search { namespace Par {
 
   // Forward declaration
   template<class Collect>
-  class AssetSearch;
+  class PBS;
 
   /// Runnable slave of a portfolio master
   template<class Collect>
   class GECODE_SEARCH_EXPORT Slave : public Support::Runnable {
   protected:
     /// The master engine
-    AssetSearch<Collect>* master;
+    PBS<Collect>* master;
     /// The slave engine
     Engine* slave;
     /// Stop object
     Stop* stop;
   public:
     /// Initialize with master \a m, slave \a s, and its stop object \a so
-    Slave(AssetSearch<Collect>* m, Engine* s, Stop* so);
+    Slave(PBS<Collect>* m, Engine* s, Stop* so);
     /// Return statistics of slave
     Statistics statistics(void) const;
     /// Check whether slave has been stopped
     bool stopped(void) const;
+
+    bool alwaysStops(void) const;
     /// Constrain with better solution \a b
     void constrain(const Space& b);
     /// Perform one run
@@ -135,7 +137,7 @@ namespace Gecode { namespace Search { namespace Par {
 
   /// Parallel portfolio engine implementation
   template<class Collect>
-  class GECODE_SEARCH_EXPORT AssetSearch : public Engine {
+  class GECODE_SEARCH_EXPORT PBS : public Engine {
     friend class Slave<Collect>;
   protected:
     /// Master statistics
@@ -170,17 +172,19 @@ namespace Gecode { namespace Search { namespace Par {
      */
   public:
     /// Initialize
-    AssetSearch(Engine** s, Stop** so, unsigned int n, const Statistics& stat);
+    PBS(Engine** s, Stop** so, unsigned int n, const Statistics& stat);
     /// Return next solution (nullptr, if none exists or search has been stopped)
     virtual Space* next(void);
     /// Return statistics
     virtual Statistics statistics(void) const;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Constrain future solutions to be better than \a b
     virtual void constrain(const Space& b);
     /// Destructor
-    virtual ~AssetSearch(void);
+    virtual ~PBS(void);
   };
 
 }}}

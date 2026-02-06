@@ -311,6 +311,12 @@ namespace Gecode { namespace Search { namespace Seq {
   }
 
   template<class Tracer>
+  bool
+  LDS<Tracer>::alwaysStops(void) const {
+    return e.alwaysStops(opt);
+  }
+
+  template<class Tracer>
   Statistics
   LDS<Tracer>::statistics(void) const {
     return e.statistics();

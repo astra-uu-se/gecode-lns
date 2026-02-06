@@ -55,8 +55,10 @@ namespace Gecode { namespace Search {
     virtual Space* next(void);
     /// Return statistics
     virtual Search::Statistics statistics(void) const;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Constrain future solutions to be better than \a b
     virtual void constrain(const Space& b);
     /// Reset engine to restart at space \a s
@@ -90,6 +92,11 @@ namespace Gecode { namespace Search {
   bool
   WorkerToEngine<Worker>::stopped(void) const {
     return w.stopped();
+  }
+  template<class Worker>
+  bool
+  WorkerToEngine<Worker>::alwaysStops(void) const {
+    return w.alwaysStops();
   }
   template<class Worker>
   void

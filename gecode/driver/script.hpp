@@ -412,7 +412,7 @@ namespace Gecode { namespace Driver {
     if (o.restart() != RM_NONE) {
       runMeta<Script,Engine,Options,RBS>(o,s);
     } else if (o.assets() > 0) {
-      runMeta<Script,Engine,Options,AssetSearch>(o,s);
+      runMeta<Script,Engine,Options,PBS>(o,s);
     } else {
       runMeta<Script,Engine,Options,EngineToMeta>(o,s);
     }

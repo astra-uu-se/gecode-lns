@@ -84,6 +84,7 @@ namespace Gecode { namespace Search { namespace Sequential {
     NoGoods& nogoods(void);
     /// Destructor
     ~QDFS(void);
+
   };
 
   forceinline

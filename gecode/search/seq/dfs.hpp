@@ -74,6 +74,12 @@ namespace Gecode { namespace Search { namespace Seq {
   }
 
   template<class Tracer>
+  forceinline bool
+  DFS<Tracer>::alwaysStops(void) const {
+    return (opt.stop != nullptr) && opt.stop->done();
+  }
+
+  template<class Tracer>
   forceinline Space*
   DFS<Tracer>::next(void) {
     /*

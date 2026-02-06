@@ -48,7 +48,7 @@ namespace Gecode { namespace Search { namespace Seq {
   };
 
   /// Stop object used for controlling slaves in a portfolio
-  class GECODE_SEARCH_EXPORT AssetSearchStop : public Stop {
+  class GECODE_SEARCH_EXPORT PortfolioStop : public Stop {
   private:
     /// The stop object for the slaves
     Stop* so;
@@ -56,7 +56,7 @@ namespace Gecode { namespace Search { namespace Seq {
     SharedStopInfo* ssi;
   public:
     /// Initialize
-    AssetSearchStop(Stop* so);
+    PortfolioStop(Stop* so);
     /// Initialize shared stop information
     void share(SharedStopInfo* ssi);
     /// Return true if portfolio engine must be stopped
@@ -86,6 +86,8 @@ namespace Gecode { namespace Search { namespace Seq {
     Statistics statistics(void) const;
     /// Check whether slave has been stopped
     bool stopped(void) const;
+
+    bool alwaysStops() const;
     /// Constrain with better solution \a b
     void constrain(const Space& b);
     /// Perform one run
@@ -96,7 +98,7 @@ namespace Gecode { namespace Search { namespace Seq {
 
   /// Sequential portfolio engine implementation
   template<bool best>
-  class GECODE_SEARCH_EXPORT assetSearch : public Engine {
+  class GECODE_SEARCH_EXPORT PBS : public Engine {
   protected:
     /// Master statistics
     Statistics stat;
@@ -114,18 +116,20 @@ namespace Gecode { namespace Search { namespace Seq {
     bool slave_stop;
   public:
     /// Initialize
-    assetSearch(Engine** slaves, Stop** stops, unsigned int n,
+    PBS(Engine** slaves, Stop** stops, unsigned int n,
         const Statistics& stat, const Search::Options& opt);
     /// Return next solution (nullptr, if none exists or search has been stopped)
     virtual Space* next(void);
     /// Return statistics
     virtual Statistics statistics(void) const;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Constrain future solutions to be better than \a b
     virtual void constrain(const Space& b);
     /// Destructor
-    virtual ~assetSearch(void);
+    virtual ~PBS(void);
   };
 
 }}}

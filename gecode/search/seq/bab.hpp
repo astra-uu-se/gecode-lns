@@ -199,6 +199,12 @@ namespace Gecode { namespace Search { namespace Seq {
   }
 
   template<class Tracer>
+  forceinline bool
+  BAB<Tracer>::alwaysStops(void) const {
+    return Worker::alwaysStops(opt);
+  }
+
+  template<class Tracer>
   forceinline
   BAB<Tracer>::~BAB(void) {
     tracer.done();

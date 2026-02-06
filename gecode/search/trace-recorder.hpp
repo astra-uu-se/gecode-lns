@@ -139,6 +139,7 @@ namespace Gecode { namespace Search {
               const SearchTracer::NodeInfo& ni);
     /// The worker is done
     void done(void);
+    bool alwaysStops(void) const;
     /// Whether this is a real tracer
     operator bool(void) const;
   };
@@ -284,6 +285,11 @@ namespace Gecode { namespace Search {
 
   forceinline void
   NoTraceRecorder::round(void) {}
+
+  forceinline bool
+  NoTraceRecorder::alwaysStops(void) const {
+    return true;
+  }
 
   forceinline void
   NoTraceRecorder::skip(const SearchTracer::EdgeInfo&) {}

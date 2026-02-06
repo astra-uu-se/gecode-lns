@@ -190,8 +190,10 @@ namespace Gecode { namespace Search { namespace Par {
     Engine(const Options& o);
     /// Return next solution (nullptr, if none exists or search has been stopped)
     virtual Space* next(void);
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     //@}
 
     /// Destructor

@@ -125,8 +125,10 @@ namespace Gecode { namespace Search { namespace Seq {
     void constrain(const Space& b);
     /// Reset engine to restart at space \a s
     void reset(Space* s);
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Destructor
     virtual ~LDS(void);
   };

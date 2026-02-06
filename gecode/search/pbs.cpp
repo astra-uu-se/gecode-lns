@@ -36,17 +36,17 @@
 namespace Gecode { namespace Search { namespace Seq {
 
   Stop*
-  assetSearchStop(Stop* so) {
-    return new AssetSearchStop(so);
+  pbsstop(Stop* so) {
+    return new PortfolioStop(so);
   }
 
   Engine*
-  assetSearchEngine(Engine** slaves, Stop** stops, unsigned int n_slaves,
+  pbsengine(Engine** slaves, Stop** stops, unsigned int n_slaves,
             const Statistics& stat, const Search::Options& opt, bool best) {
     if (best)
-      return new assetSearch<true>(slaves,stops,n_slaves,stat,opt);
+      return new PBS<true>(slaves,stops,n_slaves,stat,opt);
     else
-      return new assetSearch<false>(slaves,stops,n_slaves,stat,opt);
+      return new PBS<false>(slaves,stops,n_slaves,stat,opt);
   }
 
 }}}
@@ -58,17 +58,17 @@ namespace Gecode { namespace Search { namespace Seq {
 namespace Gecode { namespace Search { namespace Par {
 
   Stop*
-  assetSearchStop(Stop* so) {
-    return new AssetSearchStop(so);
+  pbsstop(Stop* so) {
+    return new PortfolioStop(so);
   }
 
   Engine*
-  assetSearch(Engine** slaves, Stop** stops, unsigned int n_slaves,
+  pbsengine(Engine** slaves, Stop** stops, unsigned int n_slaves,
          const Statistics& stat, bool best) {
     if (best)
-      return new AssetSearch<CollectBest>(slaves,stops,n_slaves,stat);
+      return new PBS<CollectBest>(slaves,stops,n_slaves,stat);
     else
-      return new AssetSearch<CollectAll>(slaves,stops,n_slaves,stat);
+      return new PBS<CollectAll>(slaves,stops,n_slaves,stat);
   }
 
 }}}

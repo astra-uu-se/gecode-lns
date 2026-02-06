@@ -50,8 +50,10 @@ namespace Gecode { namespace Search { namespace Seq {
     virtual Space* next(void);
     /// Return statistics
     virtual Statistics statistics(void) const;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     virtual bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Delete
     virtual ~Dead(void);
   };
@@ -73,6 +75,12 @@ namespace Gecode { namespace Search { namespace Seq {
   bool
   Dead<Tracer>::stopped(void) const {
     return false;
+  }
+
+  template<class Tracer>
+  bool
+  Dead<Tracer>::alwaysStops(void) const {
+    return true;
   }
 
   template<class Tracer>

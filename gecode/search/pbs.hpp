@@ -41,24 +41,24 @@ namespace Gecode { namespace Search {
 
   /// A PBS engine builder
   template<class T, template<class> class E>
-  class AssetSearchBuilder : public Builder {
+  class PbsBuilder : public Builder {
     using Builder::opt;
   public:
     /// The constructor
-    explicit AssetSearchBuilder(const Options& opt);
+    explicit PbsBuilder(const Options& opt);
     /// The actual build function
     Engine* operator() (Space* s) const override;
   };
 
   template<class T, template<class> class E>
   inline
-  AssetSearchBuilder<T,E>::AssetSearchBuilder(const Options& opt)
+  PbsBuilder<T,E>::PbsBuilder(const Options& opt)
     : Builder(opt,E<T>::best) {}
 
   template<class T, template<class> class E>
   Engine*
-  AssetSearchBuilder<T,E>::operator() (Space* s) const {
-    return build<T,AssetSearch<T,E> >(s,opt);
+  PbsBuilder<T,E>::operator() (Space* s) const {
+    return build<T,PBS<T,E> >(s,opt);
   }
 
 }}
@@ -69,11 +69,11 @@ namespace Gecode { namespace Search { namespace Seq {
 
   /// Create stop object
   GECODE_SEARCH_EXPORT Stop*
-  assetSearchStop(Stop* so);
+  pbsstop(Stop* so);
 
   /// Create sequential portfolio engine
   GECODE_SEARCH_EXPORT Engine*
-  assetSearchEngine(Engine** slaves, Stop** stops, unsigned int n_slaves,
+  pbsengine(Engine** slaves, Stop** stops, unsigned int n_slaves,
             const Statistics& stat, const Search::Options& opt, bool best);
 
 }}}
@@ -82,11 +82,11 @@ namespace Gecode { namespace Search { namespace Par {
 
   /// Create stop object
   GECODE_SEARCH_EXPORT Stop*
-  assetSearchStop(Stop* so);
+  pbsstop(Stop* so);
 
   /// Create parallel portfolio engine
   GECODE_SEARCH_EXPORT Engine*
-  assetSearchEngine(Engine** slaves, Stop** stops, unsigned int n_slaves,
+  pbsengine(Engine** slaves, Stop** stops, unsigned int n_slaves,
             const Statistics& stat, bool best);
 
 }}}
@@ -95,7 +95,7 @@ namespace Gecode { namespace Search {
 
   template<class T, template<class> class E>
   Engine*
-  assetSearchSeq(T* master, const Search::Statistics& stat, Options& opt) {
+  pbsseq(T* master, const Search::Statistics& stat, Options& opt) {
     Stop* stop = opt.stop;
     Region region;
 
@@ -111,19 +111,19 @@ namespace Gecode { namespace Search {
                               SearchTracer::EngineType::PBS, numSlaves);
 
     for (unsigned int i=0U; i<numSlaves; i++) {
-      opt.stop = stops[i] = Seq::assetSearchStop(stop);
+      opt.stop = stops[i] = Seq::pbsstop(stop);
       Space* slave = (i == numSlaves-1) ?
         master : master->clone();
       (void) slave->slave(i);
       slaves[i] = build<T,E>(slave,opt);
     }
 
-    return Seq::assetSearchEngine(slaves,stops,numSlaves,stat,opt,E<T>::best);
+    return Seq::pbsengine(slaves,stops,numSlaves,stat,opt,E<T>::best);
   }
 
   template<class T, template<class> class E>
   Engine*
-  assetSearchSeq(T* master, SEBs& sebs,
+  pbsseq(T* master, SEBs& sebs,
              const Search::Statistics& stat, Options& opt, bool best) {
     Region r;
 
@@ -137,7 +137,7 @@ namespace Gecode { namespace Search {
 
     for (int i=0; i < n_slaves; i++) {
       // Re-configure slave options
-      stops[i] = Seq::assetSearchStop(sebs[i]->options().stop);
+      stops[i] = Seq::pbsstop(sebs[i]->options().stop);
       sebs[i]->options().stop  = stops[i];
       sebs[i]->options().clone = false;
       Space* slave = (i == n_slaves-1) ?
@@ -147,7 +147,7 @@ namespace Gecode { namespace Search {
       delete sebs[i];
     }
 
-    return Seq::assetSearchEngine(slaves,stops,static_cast<unsigned int>(n_slaves),
+    return Seq::pbsengine(slaves,stops,static_cast<unsigned int>(n_slaves),
                           stat,opt,best);
   }
 
@@ -155,7 +155,7 @@ namespace Gecode { namespace Search {
 
   template<class T, template<class> class E>
   Engine*
-  assetSearchPar(T* master, const Search::Statistics& stat, Options& opt) {
+  pbspar(T* master, const Search::Statistics& stat, Options& opt) {
     Stop* stop = opt.stop;
     Region r;
 
@@ -172,19 +172,19 @@ namespace Gecode { namespace Search {
     Stop** stops = r.alloc<Stop*>(n_slaves);
 
     for (unsigned int i=0U; i<n_slaves; i++) {
-      opt.stop = stops[i] = Par::assetSearchStop(stop);
+      opt.stop = stops[i] = Par::pbsstop(stop);
       Space* slave = (i == n_slaves-1) ?
         master : master->clone();
       (void) slave->slave(static_cast<unsigned int>(i));
       slaves[i] = build<T,E>(slave,opt);
     }
 
-    return Par::assetSearchEngine(slaves,stops,n_slaves,stat,E<T>::best);
+    return Par::pbsengine(slaves,stops,n_slaves,stat,E<T>::best);
   }
 
   template<class T, template<class> class E>
   Engine*
-  assetSearchPar(T* master, SEBs& searchEngineBuilders,
+  pbspar(T* master, SEBs& searchEngineBuilders,
          const Search::Statistics& stat, Options& opt, bool best) {
     Region r;
 
@@ -201,7 +201,7 @@ namespace Gecode { namespace Search {
 
     for (int i=0; i<numSlaves; i++) {
       // Re-configure slave options
-      stops[i] = Par::assetSearchStop(searchEngineBuilders[i]->options().stop);
+      stops[i] = Par::pbsstop(searchEngineBuilders[i]->options().stop);
       searchEngineBuilders[i]->options().stop  = stops[i];
       searchEngineBuilders[i]->options().clone = false;
       Space* slave = (i == numSlaves-1) ?
@@ -214,7 +214,7 @@ namespace Gecode { namespace Search {
     for (unsigned int i=numSlaves; i<searchEngineBuilders.size(); i++)
       delete searchEngineBuilders[i];
 
-    return Par::assetSearchEngine(slaves,stops,numSlaves,stat,best);
+    return Par::pbsengine(slaves,stops,numSlaves,stat,best);
   }
 
 #endif
@@ -224,7 +224,7 @@ namespace Gecode { namespace Search {
 namespace Gecode {
 
   template<class T, template<class> class E>
-  AssetSearch<T,E>::AssetSearch(T* s, const Search::Options& o) {
+  PBS<T,E>::PBS(T* s, const Search::Options& o) {
     Search::Options opt(o.expand());
 
     if (opt.numAssets == 0)
@@ -257,15 +257,15 @@ namespace Gecode {
 
 #ifdef GECODE_HAS_THREADS
     if (opt.numThreads > 1.0)
-      e = Search::assetSearchPar<T,E>(master,stat,opt);
+      e = Search::pbspar<T,E>(master,stat,opt);
     else
 #endif
-      e = Search::assetSearchSeq<T,E>(master,stat,opt);
+      e = Search::pbsseq<T,E>(master,stat,opt);
   }
 
   template<class T, template<class> class E>
   void
-  AssetSearch<T,E>::build(T* s, SEBs& searchEngineBuilders, const Search::Options& o) {
+  PBS<T,E>::build(T* s, SEBs& searchEngineBuilders, const Search::Options& o) {
     // Check whether all sebs do either best solution search or not
     bool best;
     {
@@ -298,29 +298,29 @@ namespace Gecode {
 
 #ifdef GECODE_HAS_THREADS
     if (opt.numThreads > 1.0)
-      e = Search::assetSearchPar<T,E>(master,searchEngineBuilders,stat,opt,best);
+      e = Search::pbspar<T,E>(master,searchEngineBuilders,stat,opt,best);
     else
 #endif
-      e = Search::assetSearchSeq<T,E>(master,searchEngineBuilders,stat,opt,best);
+      e = Search::pbsseq<T,E>(master,searchEngineBuilders,stat,opt,best);
   }
 
   template<class T, template<class> class E>
   inline
-  AssetSearch<T,E>::AssetSearch(T* s, SEBs& searchEngineBuilders, const Search::Options& o) {
+  PBS<T,E>::PBS(T* s, SEBs& searchEngineBuilders, const Search::Options& o) {
     build(s,searchEngineBuilders,o);
   }
 
   template<class T, template<class> class E>
   inline T*
-  assetSearch(T* s, const Search::Options& o) {
-    AssetSearch<T,E> r(s,o);
+  pbs(T* s, const Search::Options& o) {
+    PBS<T,E> r(s,o);
     return r.next();
   }
 
   template<class T, template<class> class E>
   inline SEB
-  assetSearch(const Search::Options& o) {
-    return new Search::AssetSearchBuilder<T,E>(o);
+  pbs(const Search::Options& o) {
+    return new Search::PbsBuilder<T,E>(o);
   }
 
 }

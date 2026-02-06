@@ -2088,10 +2088,12 @@ namespace Gecode { namespace FlatZinc {
     if (method() != other.method()) {
       throw std::runtime_error("compareObjectiveValue: cannot compare spaces with different methods.");
     }
-    if (total_viol.val() < other.total_viol.val()) {
+    const int thisViol = viol_vars.empty() ? 0 : total_viol.val();
+    const int otherViol = other.viol_vars.empty() ? 0 : other.total_viol.val();
+    if (thisViol < otherViol) {
       return -1;
     }
-    if (total_viol.val() > other.total_viol.val()) {
+    if (thisViol > otherViol) {
       return 1;
     }
     if (method() == SAT) {
@@ -2658,13 +2660,17 @@ namespace Gecode { namespace FlatZinc {
           lastViolated = next_sol->total_viol.val() > 0;
         }
         const bool isSatisfied = next_sol->viol_vars.empty() || next_sol->total_viol.val() == 0;
-        hasPrinted = isSatisfied && (_method == SAT || printAll || findSol == 0);
+        const int sol_comp = (sol == nullptr || _method == SAT) ? -1 : next_sol->compareObjectiveValue(*sol);
+        assert(sol_comp <= 0);
+        hasPrinted = isSatisfied && (_method == SAT || (printAll && sol_comp < 0) || findSol == 0);
         if (hasPrinted) {
           next_sol->print(out, p);
           out << "----------" << std::endl;
         }
         hasSolution = hasSolution || isSatisfied;
-        sol = next_sol;
+        if (sol_comp < 0) {
+          sol = next_sol;
+        }
         if (hasSolution && _method == SAT) {
           break;
         }
@@ -2780,7 +2786,7 @@ namespace Gecode { namespace FlatZinc {
     }
   }
 
-  void FlatZincSpace::runAssetSearch(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
+  void FlatZincSpace::runPBS(std::ostream& out, FlatZinc::Printer& p, FlatZincOptions& opt, Support::Timer& t_total) {
     SearchController assetSearch(this, out, p, opt, t_total);
     storeConstraintInformation(constraints);
     if (!assetSearch.init()) {

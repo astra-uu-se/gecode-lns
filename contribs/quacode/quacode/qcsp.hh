@@ -254,8 +254,10 @@ namespace Gecode {
     T* next(void);
     /// Return statistics
     Search::Statistics statistics(void) const;
-    /// Check whether engine has been stopped
+    /// Check whether engine has been stopped. A stopped engine can be restarted
     bool stopped(void) const;
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    virtual bool alwaysStops(void) const;
     /// Destructor
     ~QDFS(void);
   };

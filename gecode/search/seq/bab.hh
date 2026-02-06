@@ -76,6 +76,8 @@ namespace Gecode { namespace Search { namespace Seq {
     void reset(Space* s);
     /// Return no-goods
     NoGoods& nogoods(void);
+    /// Check weather engine will always be stopped upon a restart and will not perform any additional search
+    bool alwaysStops(void) const;
     /// Destructor
     ~BAB(void);
   };

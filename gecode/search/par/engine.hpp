@@ -57,6 +57,11 @@ namespace Gecode { namespace Search { namespace Par {
   Engine<Tracer>::stopped(void) const {
     return has_stopped;
   }
+  template<class Tracer>
+  forceinline bool
+  Engine<Tracer>::alwaysStops(void) const {
+    return false;
+  }
 
 
   /*

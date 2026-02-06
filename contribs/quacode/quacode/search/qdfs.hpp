@@ -78,6 +78,12 @@ namespace Gecode {
   }
 
   template<class T>
+  forceinline bool
+  QDFS<T>::alwaysStops(void) const {
+    return e->alwaysStops();
+  }
+
+  template<class T>
   forceinline
   QDFS<T>::~QDFS(void) {
     delete e;

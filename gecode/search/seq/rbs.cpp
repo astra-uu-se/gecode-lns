@@ -40,20 +40,15 @@ namespace Gecode { namespace Search { namespace Seq {
 
   bool
   RestartStop::stop(const Statistics& s, const Options& o) {
-    if (optimum_found != nullptr && optimum_found->load()) {
+    // Stop if the fail limit for the engine says so
+    if (s.fail > l) {
+      e_stopped = true;
+      m_stat.restart++;
       return true;
     }
     // Stop if the stop object for the meta engine says so
     if (m_stop.stop(m_stat+s,o)) {
-      e_stopped = true;
-      if (s.fail > l) {
-        m_stat.restart++;
-      }
-      return true;
-    }
-    // Stop if the fail limit for the engine says so
-    if (s.fail > l) {
-      m_stat.restart++;
+      e_stopped = false;
       return true;
     }
     return false;
@@ -167,6 +162,11 @@ namespace Gecode { namespace Search { namespace Seq {
      * missed.
      */
     return e->stopped();
+  }
+
+  bool
+  RBS::alwaysStops(void) const {
+    return ((stop != nullptr) && stop->done()) || e->alwaysStops();
   }
 
   RBS::~RBS(void) {
