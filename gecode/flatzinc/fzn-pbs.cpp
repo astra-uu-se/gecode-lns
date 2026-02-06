@@ -125,7 +125,7 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
         }
         if (success && sol_comp < 0) {
             _allBestSolutions->emplace_back(std::dynamic_pointer_cast<Gecode::Space>(sol));
-            if (_flatZincOptions.allSolutions()) {
+            if (_flatZincOptions.allSolutions() && (sol->viol_vars.empty() || sol->total_viol.val() == 0)) {
                 sol->print(_ostream, _printer);
                 _ostream << "----------" << std::endl;
             }
@@ -140,7 +140,7 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
     }
     _solutionMutex.unlock();
 
-    return sol_comp <= 0;
+    return sol_comp < 0;
 }
 
 int SearchController::banditArmId(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators,
@@ -316,20 +316,25 @@ bool isLnsType(FlatZincSpace::AssetType assetType) {
     }
 }
 
-bool SearchController::isValidBanditArm(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const {
+bool SearchController::isValidBanditArm(bool hasSatisfyingSolution, FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const {
     if (!isLnsType(assetType)) {
         // DFS/BAB cannot be used with dependency curation
         return !useDependencyCuratedLns;
     }
-    if (!useSelfSubsumingPropagators) {
+    bool ret = true;
+    if (useSelfSubsumingPropagators) {
+        if (hasSatisfyingSolution) {
+            return false;
+        }
+    } else {
         // For LNS without self-subsuming propagators to work,
         // the problem must be a COP and there must be an incumbent solution
-        return _method != FlatZincSpace::SAT && !_allBestSolutions->empty();
+        ret &= _method != FlatZincSpace::SAT && !_allBestSolutions->empty();
     }
     if (assetType == FlatZincSpace::AssetType::CIGLNS) {
-        return _flatZincSpace->_objective_is_sum;
+        ret &= _flatZincSpace->_objective_is_sum;
     }
-    return true;
+    return ret;
 }
 
 void SearchController::updateMultiArmedBandit() {
@@ -348,6 +353,12 @@ void SearchController::updateMultiArmedBandit() {
             FlatZincSpace::AssetType::PGLNS,
             FlatZincSpace::AssetType::REVPGLNS,
             FlatZincSpace::AssetType::LNS_USER};
+    }
+
+    bool hasSatisfyingSol = false;
+    if (_flatZincSpace->_incumbentSolution->hasValue()) {
+        auto sol = _flatZincSpace->_incumbentSolution->load();
+        hasSatisfyingSol = sol->viol_vars.empty() || sol->total_viol.val() == 0;
     }
 
     _banditMutex.lock();
@@ -374,7 +385,7 @@ void SearchController::updateMultiArmedBandit() {
     for (int i = static_cast<int>(validBanditAssetTypes.size()) - 1; i >= 0; --i) {
         for (bool useSelfSubsumingPropagators : std::array{false, true}) {
             for (bool useDependencyCuratedLns : std::array{false, true}) {
-                if (isValidBanditArm(validBanditAssetTypes[i], useSelfSubsumingPropagators, useDependencyCuratedLns)) {
+                if (isValidBanditArm(hasSatisfyingSol, validBanditAssetTypes[i], useSelfSubsumingPropagators, useDependencyCuratedLns)) {
                     _banditArmIds.at(static_cast<size_t>(validBanditAssetTypes[i])).at(useSelfSubsumingPropagators ? 1 : 0).at(useDependencyCuratedLns ? 1 : 0) = numArms;
                     _armIdToAssetType.emplace_back(validBanditAssetTypes[i]);
                     _armIdToSelfSubsuming.emplace_back(useSelfSubsumingPropagators);
@@ -654,7 +665,9 @@ void AssetExecutor::runSearch() {
                     fopt.restart_base(1.5);
                     fopt.restart_scale(250);
                     assert(searchOptions.cutoff != nullptr);
+                    // delete searchOptions.cutoff;
                     searchOptions.cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(fopt));
+                    auto* e = dynamic_cast<RBSEngine*>(engine);
                     auto* upd_se = new RBSEngine(asset->curFlatZincSpace(), searchOptions, control._optimumFound, control._allBestSolutions);
                     asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                     engine = upd_se;

@@ -645,8 +645,8 @@ private:
     // Creates the asset used by the portfolio.
     void createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, bool useSelfSubsumingPropagators);
 
-    [[nodiscard]] bool isValidBanditArm(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators,
-                      bool useDependencyCuratedLns) const;
+    [[nodiscard]] bool isValidBanditArm(bool hasSatisfyingSolution, FlatZincSpace::AssetType assetType,
+                                        bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const;
 
     void updateMultiArmedBandit();
     // Sets up the asset used by the portfolio.
