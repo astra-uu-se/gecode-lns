@@ -254,11 +254,11 @@ protected:
     std::vector<size_t> _armTotalCount;
 
     mutable std::mt19937_64 _rng;
-    double _temperature; /// Often called epsilon
+    double _temperature; /// Often called epsilon. ∈(0,1).
 
 public:
     explicit GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -270,7 +270,7 @@ protected:
     std::vector<size_t> _armTotalCount;
 public:
     explicit UCBBandit(size_t numArms);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -282,11 +282,26 @@ protected:
     std::vector<size_t> _armTotalCount;
 
     mutable std::mt19937_64 _rng;
-    double _temperature; /// Often called tau
+    double _temperature; /// Often called learning rate, tau, or eta. ∈[0,1).
 
 public:
     explicit SoftMaxBandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class Exp3Bandit : public AbstractBandit {
+protected:
+    size_t _totalCount{0};
+    std::vector<double> _weights;
+    std::vector<double> _probabilities;
+
+    mutable std::mt19937_64 _rng;
+    double _temperature; /// Often called learning rate, gamma, or eta. ∈[0,1).
+
+public:
+    explicit Exp3Bandit(size_t numArms, std::uint64_t rng_seed, double temperature = 0.1);
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -298,7 +313,22 @@ protected:
     mutable std::mt19937_64 _rng;
 public:
     explicit ThompsonBandit(size_t numArms, std::uint64_t rng_seed);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class DiscountedUCBBandit : public AbstractBandit {
+protected:
+    size_t _totalCount{0};
+    std::vector<double> _totalReward;
+    std::vector<double> _averageReward;
+    std::vector<double> _armTotalCount;
+
+    double _discountFactor; // aka gamma. try values on the larger end of ∈[0,1)
+
+public:
+    explicit DiscountedUCBBandit(size_t numArms, double discountFactor = 0.95);
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -309,24 +339,24 @@ protected:
     std::vector<double> _averageReward;
     std::vector<size_t> _armTotalCount;
 
-    size_t _window_size;
+    size_t _windowSize;
     std::queue<std::pair<size_t, double>> _observations;
-    double _eta; // "some appropriate constant," try values in (0.5, 2]
+    double _eta; // "some appropriate constant"; try values ∈(0.5, 2].
 
 public:
     explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta = 0.501);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
 class DiscountedThompsonBandit : public AbstractBandit {
 protected:
     mutable std::mt19937_64 _rng;
-    double _prior_alpha;
-    double _prior_beta;
+    double _priorAlpha;
+    double _priorBeta;
     std::vector<double> _alphas;
     std::vector<double> _betas;
-    double _discount_factor;
+    double _discountFactor; // try values on the larger end of ∈[0,1)
 
 public:
     explicit DiscountedThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95);
@@ -338,11 +368,11 @@ public:
 class SlidingWindowThompsonBandit : public AbstractBandit {
 protected:
     mutable std::mt19937_64 _rng;
-    double _prior_alpha;
-    double _prior_beta;
+    double _priorAlpha;
+    double _priorBeta;
     std::vector<double> _alphas;
     std::vector<double> _betas;
-    size_t _window_size;
+    size_t _windowSize;
     std::queue<std::pair<size_t, size_t>> _observations;
 
 public:
@@ -352,14 +382,31 @@ public:
     void updateReward(size_t arm, size_t wins) override;
 };
 
-class FDiscountedSlidingWindowThompsonSamplingBandit : public AbstractBandit {
+class FDiscountedSlidingWindowThompsonBandit : public AbstractBandit {
 protected:
     mutable std::mt19937_64 _rng;
-    DiscountedThompsonBandit _discounted_bandit;
-    SlidingWindowThompsonBandit _sliding_window_bandit;
+    DiscountedThompsonBandit _discountedBandit;
+    SlidingWindowThompsonBandit _slidingWindowBandit;
 
 public:
-    explicit FDiscountedSlidingWindowThompsonSamplingBandit(size_t numArms, std::uint64_t rng_seed,double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95, size_t window_size = 100);
+    explicit FDiscountedSlidingWindowThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95, size_t window_size = 100);
+    size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
+class RavenBandit : public AbstractBandit {
+protected:
+    size_t _totalCount{0};
+    std::vector<size_t> _armTotalCount;
+    std::vector<double> _armRewardSampleMean;
+    std::vector<double> _armRewardSampleVariance;
+
+    double _explorationCoefficient; // aka alpha_0. ∈[0.01, 10]
+    double _varianceControlCoefficient; // aka beta_0. ∈[0.01, 10]
+    double _epsilon; // ∈[10^-3, 0.5]
+
+public:
+    explicit RavenBandit(size_t numArms, double explorationCoefficient = 1, double varianceControlCoefficient = 5, double epsilon = 0.01);
     size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
@@ -628,7 +675,7 @@ private:
     long unsigned int _shavingStart{0};
     Support::Timer _timeout;
 
-    const double defaultTime{5000};
+    const double defaultTime{500};
     std::optional<double> time;
     size_t _banditTimestamp{std::numeric_limits<size_t>::max()};
     size_t _numCurSolutions{0};
