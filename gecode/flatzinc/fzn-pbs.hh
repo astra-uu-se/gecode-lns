@@ -246,6 +246,15 @@ public:
     virtual void updateReward(size_t arm, size_t wins) = 0;
 };
 
+class RoundRobinBandit : public AbstractBandit {
+protected:
+    size_t _totalCount{0};
+public:
+    explicit RoundRobinBandit(size_t numArms);
+    [[nodiscard]] size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
 class GreedyBandit : public AbstractBandit {
 protected:
     size_t _totalCount{0};
@@ -309,10 +318,12 @@ class ThompsonBandit : public AbstractBandit {
 protected:
     std::vector<size_t> _armTotalWins;
     std::vector<size_t> _armTotalCount;
+    double _priorAlpha;
+    double _priorBeta;
 
     mutable std::mt19937_64 _rng;
 public:
-    explicit ThompsonBandit(size_t numArms, std::uint64_t rng_seed);
+    explicit ThompsonBandit(size_t numArms, std::uint64_t rng_seed, double priorAlpha, double priorBeta);
     [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
@@ -341,10 +352,10 @@ protected:
 
     size_t _windowSize;
     std::queue<std::pair<size_t, double>> _observations;
-    double _eta; // "some appropriate constant"; try values ∈(0.5, 2].
+    double _xi; // "some appropriate constant"; try values ∈(0.5, 2].
 
 public:
-    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double eta = 0.501);
+    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double xi = 0.501);
     [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
@@ -361,7 +372,7 @@ protected:
 public:
     explicit DiscountedThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95);
     std::vector<double> getSamples() const;
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -378,7 +389,7 @@ protected:
 public:
     explicit SlidingWindowThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, size_t window_size = 100);
     std::vector<double> getSamples() const;
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -390,7 +401,7 @@ protected:
 
 public:
     explicit FDiscountedSlidingWindowThompsonBandit(size_t numArms, std::uint64_t rng_seed, double prior_alpha = 1, double prior_beta = 0.1, double discount_factor = 0.95, size_t window_size = 100);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -407,7 +418,7 @@ protected:
 
 public:
     explicit RavenBandit(size_t numArms, double explorationCoefficient = 1, double varianceControlCoefficient = 5, double epsilon = 0.01);
-    size_t getArm() const override;
+    [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
 
@@ -675,7 +686,7 @@ private:
     long unsigned int _shavingStart{0};
     Support::Timer _timeout;
 
-    const double defaultTime{500};
+    const double defaultTime{5000};
     std::optional<double> time;
     size_t _banditTimestamp{std::numeric_limits<size_t>::max()};
     size_t _numCurSolutions{0};

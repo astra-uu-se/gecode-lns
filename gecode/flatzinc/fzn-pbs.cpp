@@ -397,39 +397,64 @@ void SearchController::updateMultiArmedBandit() {
         }
     }
     const char* bandit_env = getenv("GECODE_BANDIT_STRATEGY"); // TODO TA ARGUMENT ISTÄLLE
+    const uint64_t seed = 42;
     assert(bandit_env != nullptr);
     if (bandit_env == nullptr || strcmp(bandit_env, "GreedyBandit") == 0) {
-        _bandit = std::make_unique<GreedyBandit>(numArms, 42);
+        const double temp = stod(getenv("GECODE_BANDIT_TEMPERATURE"));
+        _bandit = std::make_unique<GreedyBandit>(numArms, seed, temp);
+    }
+    if (strcmp(bandit_env, "RoundRobinBandit") == 0) {
+        _bandit = std::make_unique<RoundRobinBandit>(numArms);
     }
     if (strcmp(bandit_env, "UCBBandit") == 0) {
         _bandit = std::make_unique<UCBBandit>(numArms);
     }
     if (strcmp(bandit_env, "SoftMaxBandit") == 0) {
-        _bandit = std::make_unique<SoftMaxBandit>(numArms, 42);
+        const double temp = stod(getenv("GECODE_BANDIT_TEMPERATURE"));
+        _bandit = std::make_unique<SoftMaxBandit>(numArms, seed, temp);
     }
     if (strcmp(bandit_env, "Exp3Bandit") == 0) {
-        _bandit = std::make_unique<Exp3Bandit>(numArms, 42);
+        const double temp = stod(getenv("GECODE_BANDIT_TEMPERATURE"));
+        _bandit = std::make_unique<Exp3Bandit>(numArms, seed, temp);
     }
     if (strcmp(bandit_env, "ThompsonBandit") == 0) {
-        _bandit = std::make_unique<ThompsonBandit>(numArms, 42);
+        const double pa = stod(getenv("GECODE_BANDIT_PRIOR_ALPHA"));
+        const double pb = stod(getenv("GECODE_BANDIT_PRIOR_BETA"));
+        _bandit = std::make_unique<ThompsonBandit>(numArms, seed, pa, pb);
     }
     if (strcmp(bandit_env, "DiscountedUCBBandit") == 0) {
-        _bandit = std::make_unique<DiscountedUCBBandit>(numArms);
+        const double discount = stod(getenv("GECODE_BANDIT_DISCOUNT"));
+        _bandit = std::make_unique<DiscountedUCBBandit>(numArms, discount);
     }
     if (strcmp(bandit_env, "SlidingWindowUCBBandit") == 0) {
-        _bandit = std::make_unique<SlidingWindowUCBBandit>(numArms, numArms*100);
+        const double windowsize = stod(getenv("GECODE_BANDIT_WINDOW_SIZE"));
+        const double xi = stod(getenv("GECODE_BANDIT_XI"));
+        _bandit = std::make_unique<SlidingWindowUCBBandit>(numArms, windowsize, xi);
     }
     if (strcmp(bandit_env, "DiscountedThompsonBandit") == 0) {
-        _bandit = std::make_unique<DiscountedThompsonBandit>(numArms, 42);
+        const double pa = stod(getenv("GECODE_BANDIT_PRIOR_ALPHA"));
+        const double pb = stod(getenv("GECODE_BANDIT_PRIOR_BETA"));
+        const double discount = stod(getenv("GECODE_BANDIT_DISCOUNT"));
+        _bandit = std::make_unique<DiscountedThompsonBandit>(numArms, seed, pa, pb, discount);
     }
     if (strcmp(bandit_env, "SlidingWindowThompsonBandit") == 0) {
-        _bandit = std::make_unique<SlidingWindowThompsonBandit>(numArms, 42);
+        const double pa = stod(getenv("GECODE_BANDIT_PRIOR_ALPHA"));
+        const double pb = stod(getenv("GECODE_BANDIT_PRIOR_BETA"));
+        const double windowsize = stod(getenv("GECODE_BANDIT_WINDOW_SIZE"));
+        _bandit = std::make_unique<SlidingWindowThompsonBandit>(numArms, seed, pa, pb, windowsize);
     }
     if (strcmp(bandit_env, "FDiscountedSlidingWindowThompsonBandit") == 0) {
-        _bandit = std::make_unique<FDiscountedSlidingWindowThompsonBandit>(numArms, 42);
+        const double pa = stod(getenv("GECODE_BANDIT_PRIOR_ALPHA"));
+        const double pb = stod(getenv("GECODE_BANDIT_PRIOR_BETA"));
+        const double discount = stod(getenv("GECODE_BANDIT_DISCOUNT"));
+        const double windowsize = stod(getenv("GECODE_BANDIT_WINDOW_SIZE"));
+        _bandit = std::make_unique<FDiscountedSlidingWindowThompsonBandit>(numArms, seed, pa, pb, discount, windowsize);
     }
     if (strcmp(bandit_env, "RavenBandit") == 0) {
-        _bandit = std::make_unique<RavenBandit>(numArms);
+        const double exploration = stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT"));
+        const double variancecontrol = stod(getenv("GECODE_BANDIT_VARIANCE_CONTROL_COEFFICIENT"));
+        const double epsilon = stod(getenv("GECODE_BANDIT_EPSILON"));
+        _bandit = std::make_unique<RavenBandit>(numArms, exploration, variancecontrol, epsilon);
     }
 
     _banditMutex.unlock();
@@ -570,9 +595,21 @@ AbstractBandit::AbstractBandit(const size_t numArms)
     : _numArms(numArms) {
 }
 
+// RR (stupid) Bandit below.
+RoundRobinBandit::RoundRobinBandit(const size_t numArms)
+    : AbstractBandit(numArms){
+}
+
+size_t RoundRobinBandit::getArm() const {
+    return _totalCount % _numArms;
+}
+
+void RoundRobinBandit::updateReward(const size_t arm, const size_t wins) {
+    _totalCount++;
+}
 
 // Greedy Bandit Below.
-GreedyBandit::GreedyBandit(size_t numArms, std::uint64_t rng_seed, double temperature)
+GreedyBandit::GreedyBandit(const size_t numArms, const std::uint64_t rng_seed, const double temperature)
     : AbstractBandit(numArms),
       _totalReward(numArms, 0.0),
       _averageReward(numArms, 0.0),
@@ -700,11 +737,13 @@ void Exp3Bandit::updateReward(const size_t arm, const size_t wins) {
 }
 
 // Thompson Bandit below.
-ThompsonBandit::ThompsonBandit(const size_t numArms, const std::uint64_t rng_seed)
+ThompsonBandit::ThompsonBandit(const size_t numArms, const std::uint64_t rng_seed, const double priorAlpha, const double priorBeta)
     : AbstractBandit(numArms),
       _armTotalWins(numArms, 0.0),
       _armTotalCount(numArms, 0),
-      _rng(rng_seed) {
+      _rng(rng_seed),
+      _priorAlpha(priorAlpha),
+      _priorBeta(priorBeta) {
 }
 
 size_t ThompsonBandit::getArm() const {
@@ -712,7 +751,7 @@ size_t ThompsonBandit::getArm() const {
     for (size_t i = 0; i < _numArms; i++) {
         //The number of solutions found is modeled as an unknown Poisson process.
         //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
-        std::gamma_distribution gamma(1.0 + static_cast<double>(_armTotalWins[i]), 0.1 + static_cast<double>(_armTotalCount[i]));
+        std::gamma_distribution gamma(_priorAlpha + static_cast<double>(_armTotalWins[i]), 1.0 / (_priorBeta + static_cast<double>(_armTotalCount[i])));
         gamma_draws[i] = gamma(_rng);
     }
 
@@ -779,10 +818,10 @@ void DiscountedUCBBandit::updateReward(const size_t arm, const size_t wins) {
     _averageReward[arm] = _totalReward[arm] / _armTotalCount[arm];
 }
 
-SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double eta)
+SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double xi)
     : AbstractBandit(numArms),
       _windowSize(window_size),
-      _eta(eta) {
+      _xi(xi) {
 }
 
 size_t SlidingWindowUCBBandit::getArm() const {
@@ -798,7 +837,7 @@ size_t SlidingWindowUCBBandit::getArm() const {
     size_t best_arm = 0;
 
     for (size_t arm = 0; arm < _numArms; arm++) {
-        const double padding = sqrt(_eta * log(_observations.size()) / static_cast<double>(_armTotalCount[arm]));
+        const double padding = sqrt(_xi * log(_observations.size()) / static_cast<double>(_armTotalCount[arm]));
         if (const double reward = _averageReward[arm] + padding; reward > best_reward) {
             best_reward = reward;
             best_arm = arm;
@@ -843,7 +882,7 @@ std::vector<double> DiscountedThompsonBandit::getSamples() const {
     for (size_t i = 0; i < _numArms; i++) {
         //The number of solutions found is modeled as an unknown Poisson process.
         //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
-        std::gamma_distribution gamma(1 + _alphas[i], 0.1 + _betas[i]);
+        std::gamma_distribution gamma(1 + _alphas[i], 1.0 / (0.1 + _betas[i]));
         gamma_samples[i] = gamma(_rng);
     }
     return gamma_samples;
@@ -880,7 +919,7 @@ SlidingWindowThompsonBandit::SlidingWindowThompsonBandit(const size_t numArms, c
 std::vector<double> SlidingWindowThompsonBandit::getSamples() const {
     std::vector<double> gamma_samples(_numArms);
     for (size_t i = 0; i < _numArms; i++) {
-        std::gamma_distribution gamma(1 + _alphas[i], 0.1 + _betas[i]);
+        std::gamma_distribution gamma(1 + _alphas[i], 1.0 / (0.1 + _betas[i]));
         gamma_samples[i] = gamma(_rng);
     }
     return gamma_samples;
@@ -961,6 +1000,7 @@ size_t RavenBandit::getArm() const {
 }
 
 void RavenBandit::updateReward(const size_t arm, const size_t wins) {
+    _totalCount++;
     _armTotalCount[arm] += 1;
     const size_t n = _armTotalCount[arm];
     const double old_mean = _armRewardSampleMean[arm];
@@ -1406,6 +1446,7 @@ void BanditArmAsset::updateBanditArmId() {
 
     // update reward if bandit has not changed.
     if (_searchController.banditTimestamp() == _banditTimestamp) {
+        cout << "Bandit Arm " << _banditArmId << ": wins " << _numCurSolutions << endl;
         _searchController._bandit->updateReward(_banditArmId, _numCurSolutions);
     }
     // get new arm
@@ -1434,10 +1475,25 @@ bool BanditArmAsset::runNextRound() const {
 
 void BanditArmAsset::updateTimeout() {
     assert(_searchOptions != nullptr);
-    assert(_searchOptions->stop != nullptr);
-    const double timeout = std::min(defaultTime,  _flatZincOptions.time() - _timeout.stop());
-    if (auto* s = dynamic_cast<Driver::PBSCombinedStop*>(_searchOptions->stop)) {
-        s->update_time(timeout);
+    delete _searchOptions->stop;
+
+    // refresh the stop
+    auto b = _flatZincOptions.time() - _timeout.stop();
+    const double timeout = std::min(defaultTime, b);
+
+    _searchOptions->stop = Driver::PBSCombinedStop::create(
+        _flatZincOptions.node(),
+        _flatZincOptions.fail(),
+        timeout,
+        _flatZincOptions.restart_limit(),
+        true,
+        _searchController._optimumFound);
+
+    auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
+    if (fznCutoff == nullptr) {
+        _searchOptions->cutoff = new Search::CutoffConstant(0);
+    } else {
+        _searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
     }
 }
 
