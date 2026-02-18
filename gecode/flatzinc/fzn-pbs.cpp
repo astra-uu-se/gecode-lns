@@ -107,6 +107,19 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
             : _flatZincSpace->_incumbentSolution->compare_enqueue_strong(expected, sol);
         assert(success);
 
+        if (success && sol_comp < 0) {
+            _allBestSolutions->emplace_back(std::dynamic_pointer_cast<Gecode::Space>(sol));
+            if (_flatZincOptions.allSolutions() && (sol->viol_vars.empty() || sol->total_viol.val() == 0)) {
+                sol->print(_ostream, _printer);
+                _ostream << "----------" << std::endl;
+            }
+            if (sol->method() == FlatZincSpace::SAT && sol->total_viol.val() == 0) {
+                _optimumFound->store(true);
+            }
+            if (asset_id < _assets.size()) {
+                _finishedAsset = asset_id;
+            }
+        }
         if (_method != FlatZincSpace::SAT &&
             (expected == nullptr || !expected->viol_vars.empty() && expected->total_viol.val() > 0) &&
             (sol->viol_vars.empty() || sol->total_viol.val() == 0)) {
@@ -121,19 +134,6 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
                 _ostream << "%% total violation: " << sol->total_viol << std::endl;
             } else if (sol->optVarIsInt() && sol->optVar() >= 0) {
                 _ostream << "%% objective: " << sol->iv[sol->optVar()] << std::endl;
-            }
-        }
-        if (success && sol_comp < 0) {
-            _allBestSolutions->emplace_back(std::dynamic_pointer_cast<Gecode::Space>(sol));
-            if (_flatZincOptions.allSolutions() && (sol->viol_vars.empty() || sol->total_viol.val() == 0)) {
-                sol->print(_ostream, _printer);
-                _ostream << "----------" << std::endl;
-            }
-            if (sol->method() == FlatZincSpace::SAT && sol->total_viol.val() == 0) {
-                _optimumFound->store(true);
-            }
-            if (asset_id < _assets.size()) {
-                _finishedAsset = asset_id;
             }
         }
         _assets[asset_id]->incrSolutions(1);
@@ -400,19 +400,22 @@ void SearchController::updateMultiArmedBandit() {
 }
 
 void SearchController::createAssets(double initTime) {
+    // Since the BAB asset that uses non failing propagators will finish almost immediately, an extra asset is created.
+    const unsigned int numAssets = _flatZincOptions.threads() <= 2 ? 2 : (_flatZincOptions.threads() + 1);
+
     // Vector of asset type and the number of threads to use for that asset type.
     std::array<std::pair<FlatZincSpace::AssetType, bool>, 2> defaultCompleteTypes{
                 std::pair<FlatZincSpace::AssetType, bool>{FlatZincSpace::AssetType::USER, false},
                 std::pair<FlatZincSpace::AssetType, bool>{FlatZincSpace::AssetType::USER, true}};
 
     const int numCompleteAssets = defaultCompleteTypes.size();
-    const int numLnsAssets = static_cast<int>(_flatZincOptions.threads()) - numCompleteAssets;
-    const bool useShaving = false && _flatZincOptions.threads() - numCompleteAssets - numLnsAssets > 0;
+    const int numLnsAssets = static_cast<int>(numAssets) - numCompleteAssets;
+    const bool useShaving = false && numAssets - numCompleteAssets - numLnsAssets > 0;
 
     // Set array sizes indexed by the assets id.
-    _assets.resize(_flatZincOptions.threads());
-    _assetSwappedEngine.resize(_flatZincOptions.threads(), false);
-    _runningThreads = _flatZincOptions.threads();
+    _assets.resize(numAssets);
+    _assetSwappedEngine.resize(numAssets, false);
+    _runningThreads = numAssets;
 
     updateMultiArmedBandit();
 
@@ -619,7 +622,7 @@ void AssetExecutor::runSearch() {
         asset->updateBanditArmId();
         // update engine with new timeout
         if (round > 0) {
-            asset->updateEngine();
+            asset->updateTimeout();
         }
         BaseEngine* engine = asset->engine();
 
@@ -644,12 +647,21 @@ void AssetExecutor::runSearch() {
             }
 
             // Apply nq constraints to make asset take advantage of shaving.
-            std::vector<Literal> local_forbidden_literals = control.get_forbidden_literals();
-            const size_t size = local_forbidden_literals.size();
-            if (size > asset->shavingStart()) {
-                for (size_t i = asset->shavingStart(); i < size; i++) {
-                    local_forbidden_literals[i].var.nq(&(asset->flatZincSpace()), local_forbidden_literals[i].value);
+            assert(control.get_forbidden_literals().empty());
+            if (false) {
+                std::vector<Literal> local_forbidden_literals = control.get_forbidden_literals();
+                const size_t size = local_forbidden_literals.size();
+                if (size > asset->shavingStart()) {
+                    for (size_t i = asset->shavingStart(); i < size; i++) {
+                        local_forbidden_literals[i].var.nq(&(asset->flatZincSpace()), local_forbidden_literals[i].value);
+                    }
                 }
+            }
+
+            if (asset->assetType() == FlatZincSpace::AssetType::USER && asset->useSelfSubsumingPropagators()) {
+                asset->increaseSolveTime(t_solve.stop());
+                control.thread_done();
+                return;
             }
 
             // Change the search engine to update cd and ad.
@@ -664,10 +676,7 @@ void AssetExecutor::runSearch() {
                     fopt.restart(RM_LUBY);
                     fopt.restart_base(1.5);
                     fopt.restart_scale(250);
-                    assert(searchOptions.cutoff != nullptr);
-                    // delete searchOptions.cutoff;
                     searchOptions.cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(fopt));
-                    auto* e = dynamic_cast<RBSEngine*>(engine);
                     auto* upd_se = new RBSEngine(asset->curFlatZincSpace(), searchOptions, control._optimumFound, control._allBestSolutions);
                     asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                     engine = upd_se;
@@ -852,10 +861,6 @@ std::shared_ptr<Search::Options> BaseAsset::generateSearchOptions(FlatZincSpace&
     searchOptions->numThreads = numThreads();
     searchOptions->nogoods_limit = _flatZincOptions.nogoods() ? _flatZincOptions.nogoods_limit() : 0;
 
-    if (_flatZincOptions.restart() != RM_NONE) {
-        _flatZincOptions.restart(RM_NONE);
-    }
-
     auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
     assert(searchOptions->cutoff == nullptr);
     if (fznCutoff == nullptr) {
@@ -863,6 +868,7 @@ std::shared_ptr<Search::Options> BaseAsset::generateSearchOptions(FlatZincSpace&
     } else {
         searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
     }
+
     if (_flatZincOptions.interrupt()) {
         Driver::PBSCombinedStop::installCtrlHandler(true);
     }
@@ -953,6 +959,14 @@ executor(new AssetExecutor(searchController, this, fopt, assetId, true)) {
         _flatZincOptions.restart(_restartMode);
         _flatZincOptions.restart_base(_restartBase);
         _flatZincOptions.restart_scale(_restartScale);
+
+        auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
+        assert(_searchOptions->cutoff == nullptr);
+        if (fznCutoff == nullptr) {
+            _searchOptions->cutoff = new Search::CutoffConstant(0);
+        } else {
+            _searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
+        }
     }
 
     assert(_searchOptions == nullptr);
@@ -1048,28 +1062,13 @@ bool BanditArmAsset::runNextRound() const {
     return !_searchController._optimumFound->load() && _timeout.stop() < _flatZincOptions.time();
 }
 
-void BanditArmAsset::updateEngine() {
-    delete _engine;
+void BanditArmAsset::updateTimeout() {
     assert(_searchOptions != nullptr);
-    delete _searchOptions->stop;
-
-    // refresh the stop
+    assert(_searchOptions->stop != nullptr);
     const double timeout = std::min(defaultTime,  _flatZincOptions.time() - _timeout.stop());
-    _searchOptions->stop = Driver::PBSCombinedStop::create(
-        _flatZincOptions.node(),
-        _flatZincOptions.fail(),
-        timeout,
-        _flatZincOptions.restart_limit(),
-        true,
-        _searchController._optimumFound);
-
-    auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
-    if (fznCutoff == nullptr) {
-        _searchOptions->cutoff = new Search::CutoffConstant(0);
-    } else {
-        _searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
+    if (auto* s = dynamic_cast<Driver::PBSCombinedStop*>(_searchOptions->stop)) {
+        s->update_time(timeout);
     }
-    _engine = new RBSEngine(_curFlatZincSpace, *_searchOptions);
 }
 
 RoundRobinLNSAsset::RoundRobinLNSAsset(SearchController &control, FlatZincSpace& fg, FlatZincOptions &fopt,

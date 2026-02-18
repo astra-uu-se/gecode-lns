@@ -57,7 +57,7 @@ namespace Gecode { namespace Search { namespace Seq {
 
   forceinline
   bool RestartStop::done() const {
-    return e_stopped || m_stop.done();
+    return m_stop.done();
   }
 
 

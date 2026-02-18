@@ -103,6 +103,35 @@ namespace Gecode { namespace Driver {
           (sigint                          ? SR_INT  : 0) |
           (search_finished                  ? SR_SOLUTION : 0);
       }
+
+      void update_node(unsigned long long int node) {
+          delete ns;
+          if (node > 0) {
+            ns = new Search::NodeStop(node);
+          }
+        }
+
+      void update_fail(unsigned long long int fail) {
+          delete fs;
+          if (fail > 0) {
+            fs = new Search::FailStop(fail);
+          }
+        }
+
+      void update_time(double time) {
+          delete ts;
+          if (time > 0.0) {
+            ts = new Search::TimeStop(time);
+          }
+        }
+
+      void update_restart(unsigned long long int restart) {
+          delete rs;
+          if (restart > 0) {
+            rs = new Search::RestartStop(restart);
+          }
+        }
+
       /// Create appropriate stop-object
       static Search::Stop*
       create(unsigned long long int node, unsigned long long int fail, double time, unsigned long long int restart, bool intr, std::shared_ptr<std::atomic<bool>> search_finished) {
@@ -243,6 +272,7 @@ namespace Gecode { namespace Driver {
     ~CombinedStop(void) {
       delete ns; delete fs; delete ts; delete rs;
     }
+
   };
 
   /**

@@ -326,6 +326,12 @@ public:
     [[nodiscard]] virtual BaseEngine* engine() const {
         return nullptr;
     }
+    [[nodiscard]] bool useSelfSubsumingPropagators() const {
+        return _useSelfSubsumingPropagators;
+    }
+    [[nodiscard]] bool useDependencyCuratedLns() const {
+        return _useDependencyCuratedLns;
+    }
     [[nodiscard]] virtual unsigned int numPropagators() const {
         return _numPropagators;
     }
@@ -370,7 +376,7 @@ public:
     [[nodiscard]] virtual int banditArmId() const { return -1; };
     virtual void updateBanditArmId() {};
     [[nodiscard]] virtual bool runNextRound() const;
-    virtual void updateEngine() {};
+    virtual void updateTimeout() {};
     [[nodiscard]] size_t numSolutions() const { return _numSolutions; }
     virtual size_t incrSolutions(size_t increment) { return _numSolutions += increment; }
 };
@@ -500,7 +506,7 @@ public:
     void setEngine(BaseEngine* engine) override { this->_engine = dynamic_cast<RBSEngine*>(engine); }
     void updateBanditArmId() override;
     [[nodiscard]] bool runNextRound() const override;
-    void updateEngine() override;
+    void updateTimeout() override;
 
     SearchController& _searchController;
 
@@ -603,6 +609,8 @@ public:
     [[nodiscard]] size_t banditTimestamp() const {
         return _banditTimestamp;
     }
+
+    void addBandit();
 
     // Variables
     // Intial search space.

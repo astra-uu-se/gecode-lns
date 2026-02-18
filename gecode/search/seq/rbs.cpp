@@ -106,25 +106,28 @@ namespace Gecode { namespace Search { namespace Seq {
         restart = true;
         last = std::shared_ptr<Space>(n->clone());
         return n;
-      }
-      if (stop->done()) {
+      } else if (alwaysStops()) {
+        return nullptr;
+      } else if ( (!complete && !e->stopped()) ||
+                  (e->stopped() && stop->e_stopped) ) {
+        // The engine must perform a true restart
+        // The number of the restart has been incremented in the stop object
+        if (!complete && !e->stopped()) {
+          stop->m_stat.restart++;
+        }
+        solutionsSinceLastRestart = 0;
+        MetaInfo mi(stop->m_stat.restart, e->stopped() ? MetaInfo::RR_LIM : MetaInfo::RR_CMPL, solutionsSinceLastRestart,e->statistics().fail, last,e->nogoods());
+        initNext(mi);
+        unsigned long long int nl = ++(*co);
+        stop->limit(e->statistics(), nl);
+        const auto stat = master->status(stop->m_stat);
+        if (stat == SS_FAILED) {
+          return nullptr;
+        }
+        complete = slave(mi);
+      } else {
         return nullptr;
       }
-      // The engine must perform a true restart
-      // The number of the restart has been incremented in the stop object
-      if (!complete && !e->stopped()) {
-        stop->m_stat.restart++;
-      }
-      solutionsSinceLastRestart = 0;
-      MetaInfo mi(stop->m_stat.restart, e->stopped() ? MetaInfo::RR_LIM : MetaInfo::RR_CMPL, solutionsSinceLastRestart,e->statistics().fail, last,e->nogoods());
-      initNext(mi);
-      unsigned long long int nl = ++(*co);
-      stop->limit(e->statistics(), nl);
-      const auto stat = master->status(stop->m_stat);
-      if (stat == SS_FAILED) {
-        return nullptr;
-      }
-      complete = slave(mi);
     }
     GECODE_NEVER;
     return nullptr;
