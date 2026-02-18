@@ -686,7 +686,7 @@ private:
     long unsigned int _shavingStart{0};
     Support::Timer _timeout;
 
-    const double defaultTime{5000};
+    const double defaultTime{500};
     std::optional<double> time;
     size_t _banditTimestamp{std::numeric_limits<size_t>::max()};
     size_t _numCurSolutions{0};
