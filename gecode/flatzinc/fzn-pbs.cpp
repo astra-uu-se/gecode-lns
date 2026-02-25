@@ -1480,25 +1480,10 @@ bool BanditArmAsset::runNextRound() const {
 
 void BanditArmAsset::updateTimeout() {
     assert(_searchOptions != nullptr);
-    delete _searchOptions->stop;
-
-    // refresh the stop
-    auto b = _flatZincOptions.time() - _timeout.stop();
-    const double timeout = std::min(defaultTime, b);
-
-    _searchOptions->stop = Driver::PBSCombinedStop::create(
-        _flatZincOptions.node(),
-        _flatZincOptions.fail(),
-        timeout,
-        _flatZincOptions.restart_limit(),
-        true,
-        _searchController._optimumFound);
-
-    auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
-    if (fznCutoff == nullptr) {
-        _searchOptions->cutoff = new Search::CutoffConstant(0);
-    } else {
-        _searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
+    assert(_searchOptions->stop != nullptr);
+    const double timeout = std::min(defaultTime,  _flatZincOptions.time() - _timeout.stop());
+    if (auto* s = dynamic_cast<Driver::PBSCombinedStop*>(_searchOptions->stop)) {
+        s->update_time(timeout);
     }
 }
 
