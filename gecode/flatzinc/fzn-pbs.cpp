@@ -825,6 +825,9 @@ void DiscountedUCBBandit::updateReward(const size_t arm, const size_t wins) {
 
 SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double xi)
     : AbstractBandit(numArms),
+      _totalReward(numArms),
+      _averageReward(numArms),
+      _armTotalCount(numArms),
       _windowSize(window_size),
       _xi(xi) {
 }
