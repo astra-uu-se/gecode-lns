@@ -1440,7 +1440,7 @@ namespace Gecode { namespace FlatZinc {
       AST::Call* call = ce->ann->getArray()->a[0]->getCall("defines_var");
       AST::Node* var = call->args;
 
-      if (var != nullptr && var->getIntVar() != _optVar) {
+      if (var != nullptr && var->getIntVar() == _optVar) {
         _objective_is_sum = true;
         break;
       }

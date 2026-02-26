@@ -493,6 +493,9 @@ public:
     [[nodiscard]] bool useSelfSubsumingPropagators() const {
         return _useSelfSubsumingPropagators;
     }
+    virtual bool useSelfSubsumingPropagators(bool) {
+        return _useSelfSubsumingPropagators;
+    }
     [[nodiscard]] bool useDependencyCuratedLns() const {
         return _useDependencyCuratedLns;
     }
@@ -617,6 +620,9 @@ class LNSAsset : public BaseAsset {
         [[nodiscard]] long unsigned int shavingStart() const override { return _shavingStart; }
         [[nodiscard]] AssetExecutor* getExecutor() const { return executor; }
         [[nodiscard]] Search::Options& searchOptions() const override { return *_searchOptions; }
+        bool useSelfSubsumingPropagators(bool useSelfSub) override {
+            return (_useSelfSubsumingPropagators = useSelfSub);
+        }
 
         void setShavingStart(long unsigned int start) override { _shavingStart = start; }
         void setEngine(BaseEngine* engine) override { this->_engine = dynamic_cast<RBSEngine*>(engine); }
@@ -686,7 +692,7 @@ private:
     long unsigned int _shavingStart{0};
     Support::Timer _timeout;
 
-    const double defaultTime{500};
+    const double defaultTime{2000};
     std::optional<double> time;
     size_t _banditTimestamp{std::numeric_limits<size_t>::max()};
     size_t _numCurSolutions{0};
@@ -801,11 +807,13 @@ public:
     /// Flag indicating that the final best solution has been found.
     std::shared_ptr<std::atomic<bool>> _optimumFound{std::make_shared<std::atomic<bool>>(false)};
 
+
     // The asset that finished the search and found the solution.
     unsigned int _finishedAsset{std::numeric_limits<unsigned int>::max()};
 
     std::mutex _banditMutex;
     std::unique_ptr<AbstractBandit> _bandit;
+    bool _has_satisfying_solution{false};
 
     bool updateBestSolution(const std::shared_ptr<FlatZincSpace> &sol, unsigned int asset_id);
 
@@ -817,8 +825,10 @@ private:
     // Creates the asset used by the portfolio.
     void createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, bool useSelfSubsumingPropagators);
 
-    [[nodiscard]] bool isValidBanditArm(bool hasSatisfyingSolution, FlatZincSpace::AssetType assetType,
+    [[nodiscard]] bool isValidBanditArm(FlatZincSpace::AssetType assetType,
                                         bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const;
+
+    void updateHasSatisfyingSolution();
 
     void updateMultiArmedBandit();
     // Sets up the asset used by the portfolio.
@@ -827,6 +837,8 @@ private:
     void solutionStatistics(BaseAsset* asset, Support::Timer& t_total, unsigned int finished_asset);
 
     void createBanditArmAsset(unsigned int assetId);
+
+    void createLnsAsset(unsigned int assetId, int lnsId);
 
     // Variables
     std::vector<std::array<std::array<int, 2>, 2>> _banditArmIds;

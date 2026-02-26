@@ -337,6 +337,7 @@ namespace Gecode { namespace FlatZinc {
       Gecode::Driver::DoubleOption      _step;        ///< Step option
       Gecode::Driver::BoolOption        _use_pbs; //< Whether to use PBS or default BAB ADDED
       Gecode::Driver::BoolOption        _full_s;
+      Gecode::Driver::BoolOption        _no_mab; //< Whether to use PBS or default BAB ADDED
       Gecode::Driver::IntOption        _assets; //< How many assets to use for PBS
       Gecode::Driver::IntOption        _pbs_asset_type;
       //@}
@@ -384,6 +385,7 @@ namespace Gecode { namespace FlatZinc {
       _use_pbs("use-pbs", "whether to use portfolio-based-search or not", false), // ADDED
       _full_s("full-s", "whether to print statistics of all assets", false), // ADDED
       _assets("assets","the number of assets to use with portfolio-based search", 8), // ADDED
+      _no_mab("no-mab", "do not use MAB assets", false), // ADDED
       _pbs_asset_type("pbs-asset-type", "enumeration of the PBS asset type: "
       "0 = branch and bound asset; "
       "1 = random lns asset; "
@@ -428,7 +430,7 @@ namespace Gecode { namespace FlatZinc {
       add(_step);
       add(_restart); add(_r_base); add(_r_scale); add(_r_limit);
       add(_nogoods); add(_nogoods_limit);
-      add(_mode); add(_stat); add(_use_pbs); add(_full_s); add(_assets);
+      add(_mode); add(_stat); add(_use_pbs); add(_full_s); add(_assets); add(_no_mab);
       add(_pbs_asset_type);
       add(_output);
       add(_allow_softening);
@@ -456,6 +458,7 @@ namespace Gecode { namespace FlatZinc {
       Gecode::BaseOptions::help();
     }
 
+    bool useMAB(void) const { return !_no_mab.value(); } // ADDED
     bool usePBS(void) const { return _use_pbs.value(); } // ADDED
     bool fullStatistics(void) const { return _full_s.value(); } // ADDED
     int solutions(void) const { return _solutions.value(); }

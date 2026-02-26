@@ -129,7 +129,11 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
             if (sol->optVarIsInt() && sol->optVar() >= 0) {
                 _ostream << "%% objective: " << sol->iv[sol->optVar()] << std::endl;
             }
-            updateMultiArmedBandit();
+            if (_flatZincOptions.useMAB()) {
+                updateMultiArmedBandit();
+            } else {
+                updateHasSatisfyingSolution();
+            }
         } else if (sol_comp < 0) {
             if (!sol->viol_vars.empty() && (sol->total_viol.val() > 0 || _method == FlatZincSpace::SAT)) {
                 _ostream << "%% total violation: " << sol->total_viol << std::endl;
@@ -271,6 +275,31 @@ void SearchController::createBanditArmAsset(unsigned int assetId) {
     _assets[assetId]->setAssetTypeStr("bandit arm asset");
 }
 
+void SearchController::createLnsAsset(unsigned int assetId, int lnsId) {
+    const bool useDcs = assetId < 5;
+    FlatZincSpace::AssetType assetType;
+    switch (lnsId % 5) {
+        case 0:
+            assetType = FlatZincSpace::AssetType::PGLNS;
+            break;
+        case 1:
+            assetType = FlatZincSpace::AssetType::REVPGLNS;
+            break;
+        case 2:
+            assetType = FlatZincSpace::AssetType::CIGLNS;
+            break;
+        case 3:
+            assetType = FlatZincSpace::AssetType::SVRLNS;
+            break;
+        case 4:
+        default:
+            assetType = FlatZincSpace::AssetType::LNS_USER;
+            break;
+    }
+    _assets[assetId] = (std::make_unique<LNSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, assetType, true, useDcs));
+    _assets[assetId]->setAssetTypeStr("LNS asset");
+}
+
 void SearchController::createAsset(FlatZincSpace::AssetType asset, unsigned int assetId, bool useSelfSubsumingPropagators) {
     switch (asset)
     {
@@ -317,14 +346,14 @@ bool isLnsType(FlatZincSpace::AssetType assetType) {
     }
 }
 
-bool SearchController::isValidBanditArm(bool hasSatisfyingSolution, FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const {
+bool SearchController::isValidBanditArm(FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators, bool useDependencyCuratedLns) const {
     if (!isLnsType(assetType)) {
         // DFS/BAB cannot be used with dependency curation
         return !useDependencyCuratedLns;
     }
     bool ret = true;
     if (useSelfSubsumingPropagators) {
-        if (hasSatisfyingSolution) {
+        if (_has_satisfying_solution) {
             return false;
         }
     } else {
@@ -336,6 +365,13 @@ bool SearchController::isValidBanditArm(bool hasSatisfyingSolution, FlatZincSpac
         ret &= _flatZincSpace->_objective_is_sum;
     }
     return ret;
+}
+
+void SearchController::updateHasSatisfyingSolution() {
+    if (!_has_satisfying_solution && _flatZincSpace->_incumbentSolution->hasValue()) {
+        const auto sol = _flatZincSpace->_incumbentSolution->load();
+        _has_satisfying_solution = sol->viol_vars.empty() || sol->total_viol.val() == 0;
+    }
 }
 
 void SearchController::updateMultiArmedBandit() {
@@ -356,11 +392,7 @@ void SearchController::updateMultiArmedBandit() {
             FlatZincSpace::AssetType::LNS_USER};
     }
 
-    bool hasSatisfyingSol = false;
-    if (_flatZincSpace->_incumbentSolution->hasValue()) {
-        auto sol = _flatZincSpace->_incumbentSolution->load();
-        hasSatisfyingSol = sol->viol_vars.empty() || sol->total_viol.val() == 0;
-    }
+    updateHasSatisfyingSolution();
 
     _banditMutex.lock();
     ++_banditTimestamp;
@@ -386,7 +418,7 @@ void SearchController::updateMultiArmedBandit() {
     for (int i = static_cast<int>(validBanditAssetTypes.size()) - 1; i >= 0; --i) {
         for (bool useSelfSubsumingPropagators : std::array{false, true}) {
             for (bool useDependencyCuratedLns : std::array{false, true}) {
-                if (isValidBanditArm(hasSatisfyingSol, validBanditAssetTypes[i], useSelfSubsumingPropagators, useDependencyCuratedLns)) {
+                if (isValidBanditArm(validBanditAssetTypes[i], useSelfSubsumingPropagators, useDependencyCuratedLns)) {
                     _banditArmIds.at(static_cast<size_t>(validBanditAssetTypes[i])).at(useSelfSubsumingPropagators ? 1 : 0).at(useDependencyCuratedLns ? 1 : 0) = numArms;
                     _armIdToAssetType.emplace_back(validBanditAssetTypes[i]);
                     _armIdToSelfSubsuming.emplace_back(useSelfSubsumingPropagators);
@@ -465,7 +497,7 @@ void SearchController::updateMultiArmedBandit() {
 
 void SearchController::createAssets(double initTime) {
     // Since the BAB asset that uses non failing propagators will finish almost immediately, an extra asset is created.
-    const unsigned int numAssets = _flatZincOptions.threads() <= 2 ? 2 : (_flatZincOptions.threads() + 1);
+    const unsigned int numAssets = _flatZincOptions.threads() <= 1 ? 1 : (_flatZincOptions.threads() + 1);
 
     // Vector of asset type and the number of threads to use for that asset type.
     std::array<std::pair<FlatZincSpace::AssetType, bool>, 2> defaultCompleteTypes{
@@ -481,7 +513,11 @@ void SearchController::createAssets(double initTime) {
     _assetSwappedEngine.resize(numAssets, false);
     _runningThreads = numAssets;
 
-    updateMultiArmedBandit();
+    if (_flatZincOptions.useMAB()) {
+        updateMultiArmedBandit();
+    } else {
+        updateHasSatisfyingSolution();
+    }
 
     // Create complete assets:
     int assetId = 0;
@@ -490,7 +526,11 @@ void SearchController::createAssets(double initTime) {
         ++assetId;
     }
     for (int i = 0; i < numLnsAssets; ++i) {
-        createBanditArmAsset(assetId);
+        if (_flatZincOptions.useMAB()) {
+            createBanditArmAsset(assetId);
+        } else {
+            createLnsAsset(assetId, i);
+        }
         ++assetId;
     }
     if (useShaving) {
@@ -1082,6 +1122,10 @@ void AssetExecutor::runSearch() {
                 return;
             }
 
+            if (control._has_satisfying_solution) {
+                asset->useSelfSubsumingPropagators(false);
+            }
+
             // Change the search engine to update cd and ad.
             auto stats = engine->statistics();
             if (asset->assetType() != FlatZincSpace::AssetType::USER && !control._assetSwappedEngine[asset_id] && stats.depth > 50) {
@@ -1377,14 +1421,6 @@ executor(new AssetExecutor(searchController, this, fopt, assetId, true)) {
         _flatZincOptions.restart(_restartMode);
         _flatZincOptions.restart_base(_restartBase);
         _flatZincOptions.restart_scale(_restartScale);
-
-        auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
-        assert(_searchOptions->cutoff == nullptr);
-        if (fznCutoff == nullptr) {
-            _searchOptions->cutoff = new Search::CutoffConstant(0);
-        } else {
-            _searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
-        }
     }
 
     assert(_searchOptions == nullptr);
