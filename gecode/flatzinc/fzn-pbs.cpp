@@ -465,22 +465,22 @@ void SearchController::updateMultiArmedBandit() {
         _bandit = std::make_unique<SlidingWindowUCBBandit>(numArms, windowsize, xi);
     }
     else if (strcmp(bandit_env, "DiscountedThompsonBandit") == 0) {
-        const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 2.154434690031884;
-        const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.21544346900318834;
+        const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.0;
+        const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.046415888336127774;
         const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.9684188616514934;
         _bandit = std::make_unique<DiscountedThompsonBandit>(numArms, seed, pa, pb, discount);
     }
     else if (strcmp(bandit_env, "SlidingWindowThompsonBandit") == 0) {
-        const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.6681005372000588;
-        const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 2.154434690031882;
-        const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 28;
+        const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.2915496650148839;
+        const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.21544346900318834;
+        const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 349;
         _bandit = std::make_unique<SlidingWindowThompsonBandit>(numArms, seed, pa, pb, windowsize);
     }
     else if (strcmp(bandit_env, "FDiscountedSlidingWindowThompsonBandit") == 0) {
-        const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.2915496650148839;
-        const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 1.0;
-        const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.9841677651235252;
-        const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 170;
+        const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 2.154434690031884;
+        const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.021544346900318832;
+        const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.8743394685103819;
+        const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 40;
         _bandit = std::make_unique<FDiscountedSlidingWindowThompsonBandit>(numArms, seed, pa, pb, discount, windowsize);
     }
     else if (strcmp(bandit_env, "RavenBandit") == 0) {
@@ -930,7 +930,7 @@ std::vector<double> DiscountedThompsonBandit::getSamples() const {
     for (size_t i = 0; i < _numArms; i++) {
         //The number of solutions found is modeled as an unknown Poisson process.
         //prior distribution: Gamma(α=1, β=0.1). α=1 is minimal; β=0.1 gives expectation 10, incentivizing choosing unpicked arms.
-        std::gamma_distribution gamma(1 + _alphas[i], 1.0 / (0.1 + _betas[i]));
+        std::gamma_distribution gamma(_priorAlpha + _alphas[i], 1.0 / (_priorBeta + _betas[i]));
         gamma_samples[i] = gamma(_rng);
     }
     return gamma_samples;
@@ -967,7 +967,7 @@ SlidingWindowThompsonBandit::SlidingWindowThompsonBandit(const size_t numArms, c
 std::vector<double> SlidingWindowThompsonBandit::getSamples() const {
     std::vector<double> gamma_samples(_numArms);
     for (size_t i = 0; i < _numArms; i++) {
-        std::gamma_distribution gamma(1 + _alphas[i], 1.0 / (0.1 + _betas[i]));
+        std::gamma_distribution gamma(_priorAlpha + _alphas[i], 1.0 / (_priorBeta + _betas[i]));
         gamma_samples[i] = gamma(_rng);
     }
     return gamma_samples;
