@@ -716,23 +716,20 @@ void AssetExecutor::runSearch() {
                 searchOptions.a_d *= 2;
 
                 delete engine;
-                if (asset->assetType() != FlatZincSpace::AssetType::DUMMY) {
+                if (isLnsType(asset->assetType())) {
                     fopt.restart(RM_LUBY);
                     fopt.restart_base(1.5);
                     fopt.restart_scale(250);
-                    searchOptions.cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, Driver::createCutoff(fopt));
+                    searchOptions.cutoff = new Search::CutoffConstant(3000);
                     auto* upd_se = new RBSEngine(asset->curFlatZincSpace(), searchOptions, control._optimumFound, control._allBestSolutions);
                     asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                     engine = upd_se;
-                } else {
-                    if (control._method == FlatZincSpace::SAT)
-                    {
+                } else if (asset->assetType() != FlatZincSpace::AssetType::DUMMY) {
+                    if (control._method == FlatZincSpace::SAT) {
                         auto* upd_se = new DFSEngine(asset->curFlatZincSpace(), searchOptions);
                         asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                         engine = upd_se;
-                    }
-                    else
-                    {
+                    } else {
                         auto* upd_se = new BABEngine(asset->curFlatZincSpace(), searchOptions);
                         asset->setEngine(dynamic_cast<BaseEngine*>(upd_se));
                         engine = upd_se;
@@ -907,10 +904,12 @@ std::shared_ptr<Search::Options> BaseAsset::generateSearchOptions(FlatZincSpace&
 
     auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
     assert(searchOptions->cutoff == nullptr);
-    if (fznCutoff == nullptr) {
-        searchOptions->cutoff = new Search::CutoffConstant(0);
-    } else {
+    if (isLnsType(_assetType)) {
+        searchOptions->cutoff = new Search::CutoffConstant(3000);
+    } else if (fznCutoff != nullptr) {
         searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
+    } else {
+        searchOptions->cutoff = new Search::CutoffConstant(0);
     }
 
     if (_flatZincOptions.interrupt()) {
