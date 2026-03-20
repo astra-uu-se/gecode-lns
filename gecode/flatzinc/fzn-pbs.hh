@@ -433,8 +433,8 @@ class LNSAsset : public BaseAsset {
     public:
         LNSAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
             unsigned int assetId, FlatZincSpace::AssetType assetType, bool useSelfSubsumingPropagators = true,
-            bool useDependencyCuratedLns = true, RestartMode restartMode = RM_LUBY, double restartBase = 1.5,
-            unsigned int restartScale = 250);
+            bool useDependencyCuratedLns = true, RestartMode restartMode = RM_CONSTANT, double restartBase = 1,
+            unsigned int restartScale = 3000);
 
         ~LNSAsset() override {
             delete _engine;
@@ -479,7 +479,7 @@ class LNSAsset : public BaseAsset {
 class BanditArmAsset : public BaseAsset {
 public:
     BanditArmAsset(SearchController& searchController, FlatZincSpace& fg, FlatZincOptions& fopt,
-        unsigned int assetId, RestartMode restartMode = RM_LUBY, double restartBase = 1.5,
+        unsigned int assetId, RestartMode restartMode = RM_NONE, double restartBase = 1.5,
         unsigned int restartScale = 250);
 
     ~BanditArmAsset() override {

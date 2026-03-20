@@ -105,9 +105,14 @@ bool SearchController::updateBestSolution(const std::shared_ptr<FlatZincSpace> &
         const bool success = sol_comp < 0
             ? _flatZincSpace->_incumbentSolution->compare_replace_strong(expected, sol)
             : _flatZincSpace->_incumbentSolution->compare_enqueue_strong(expected, sol);
-        assert(success);
 
-        if (success && sol_comp < 0) {
+        if (!success)
+        {
+            _solutionMutex.unlock();
+            return false;
+        }
+
+        if (sol_comp < 0) {
             _allBestSolutions->emplace_back(std::dynamic_pointer_cast<Gecode::Space>(sol));
             if (_flatZincOptions.allSolutions() && (sol->viol_vars.empty() || sol->total_viol.val() == 0)) {
                 sol->print(_ostream, _printer);
@@ -304,27 +309,19 @@ void SearchController::createAsset(FlatZincSpace::AssetType asset, unsigned int 
     {
     case FlatZincSpace::AssetType::SHAVING:
         _assets[assetId] = (std::make_unique<ShavingAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 20, true, new LargestAFCVariableSorter()));
-        if (_flatZincOptions.mode() == SM_STAT) {
-            _assets[assetId]->setAssetTypeStr("shaving asset");
-        }
+        _assets[assetId]->setAssetTypeStr("shaving asset");
         break;
     case FlatZincSpace::AssetType::USER:
         _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 1, useSelfSubsumingPropagators));
-        if (_flatZincOptions.mode() == SM_STAT) {
-            _assets[assetId]->setAssetTypeStr("bab asset");
-        }
+        _assets[assetId]->setAssetTypeStr("bab asset");
         break;
     case FlatZincSpace::AssetType::PB_USER:
         _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 1, useSelfSubsumingPropagators));
-        if (_flatZincOptions.mode() == SM_STAT) {
-            _assets[assetId]->setAssetTypeStr("prioritized branching bab asset");
-        }
+        _assets[assetId]->setAssetTypeStr("prioritized branching bab asset");
         break;
     case FlatZincSpace::AssetType::USER_OPPOSITE:
         _assets[assetId] = (std::make_unique<DFSAsset>(*this, *_flatZincSpace, _flatZincOptions, assetId, asset, 1, useSelfSubsumingPropagators));
-        if (_flatZincOptions.mode() == SM_STAT) {
-            _assets[assetId]->setAssetTypeStr("bab opposite branching asset");
-        }
+        _assets[assetId]->setAssetTypeStr("bab opposite branching asset");
         break;
     default:
         break;
@@ -433,14 +430,14 @@ void SearchController::updateMultiArmedBandit() {
 
 void SearchController::createAssets(double initTime) {
     // Since the BAB asset that uses non failing propagators will finish almost immediately, an extra asset is created.
-    const unsigned int numAssets = _flatZincOptions.threads() <= 1 ? 1 : (_flatZincOptions.threads() + 1);
+    const unsigned int numAssets = _flatZincOptions.threads() <= 1 ? 2 : (_flatZincOptions.threads() + 1);
 
     // Vector of asset type and the number of threads to use for that asset type.
     std::array<std::pair<FlatZincSpace::AssetType, bool>, 2> defaultCompleteTypes{
                 std::pair<FlatZincSpace::AssetType, bool>{FlatZincSpace::AssetType::USER, false},
                 std::pair<FlatZincSpace::AssetType, bool>{FlatZincSpace::AssetType::USER, true}};
 
-    const int numCompleteAssets = defaultCompleteTypes.size();
+    const int numCompleteAssets = numAssets <= 2 ? 1 : defaultCompleteTypes.size();
     const int numLnsAssets = static_cast<int>(numAssets) - numCompleteAssets;
     const bool useShaving = false && numAssets - numCompleteAssets - numLnsAssets > 0;
 
@@ -458,8 +455,11 @@ void SearchController::createAssets(double initTime) {
     // Create complete assets:
     int assetId = 0;
     for (const auto [completeAsset, useNonFailingPropagators] : defaultCompleteTypes) {
-        createAsset(completeAsset, assetId, useNonFailingPropagators);
-        ++assetId;
+        if (numAssets > 2 || useNonFailingPropagators)
+        {
+            createAsset(completeAsset, assetId, useNonFailingPropagators);
+            ++assetId;
+        }
     }
     for (int i = 0; i < numLnsAssets; ++i) {
         if (_flatZincOptions.useMAB()) {
@@ -709,6 +709,7 @@ void AssetExecutor::runSearch() {
             }
 
             // Change the search engine to update cd and ad.
+            /*
             auto stats = engine->statistics();
             if (asset->assetType() != FlatZincSpace::AssetType::USER && !control._assetSwappedEngine[asset_id] && stats.depth > 50) {
                 Search::Options& searchOptions = asset->searchOptions();
@@ -737,6 +738,7 @@ void AssetExecutor::runSearch() {
                 }
                 control._assetSwappedEngine[asset_id] = true;
             }
+            */
         }
         ++round;
     } while (asset->runNextRound());
@@ -904,12 +906,10 @@ std::shared_ptr<Search::Options> BaseAsset::generateSearchOptions(FlatZincSpace&
 
     auto* fznCutoff = Driver::createCutoff(_flatZincOptions);
     assert(searchOptions->cutoff == nullptr);
-    if (isLnsType(_assetType)) {
-        searchOptions->cutoff = new Search::CutoffConstant(3000);
-    } else if (fznCutoff != nullptr) {
+    if (fznCutoff != nullptr) {
         searchOptions->cutoff = new Search::CutoffAppend(new Search::CutoffConstant(0), 1, fznCutoff);
     } else {
-        searchOptions->cutoff = new Search::CutoffConstant(0);
+        searchOptions->cutoff = new Search::CutoffConstant(3000);
     }
 
     if (_flatZincOptions.interrupt()) {
@@ -1009,9 +1009,9 @@ executor(new AssetExecutor(searchController, this, fopt, assetId, true)) {
         _originalFlatZincSpace,
         Driver::PBSCombinedStop::create(
             _flatZincOptions.node(),
-            _flatZincOptions.fail(),
+            _flatZincOptions.fail(), // this should be constant 3000
             _flatZincOptions.time(),
-            _flatZincOptions.restart_limit(),
+            _flatZincOptions.restart_limit(), // this should be 0
             true,
             searchController._optimumFound));
 
@@ -1039,7 +1039,7 @@ executor(new AssetExecutor(searchController, this, fopt, assetId, true)) {
     _curFlatZincSpace->postConstraints(_originalFlatZincSpace.constraints, _assetId <= 6);
 
     // If not RBS but asset is to use it:
-    if (_flatZincOptions.restart() == RM_NONE) {
+    if (_flatZincOptions.restart() == RM_NONE && _restartMode != RM_NONE) {
         _flatZincOptions.restart(_restartMode);
         _flatZincOptions.restart_base(_restartBase);
         _flatZincOptions.restart_scale(_restartScale);

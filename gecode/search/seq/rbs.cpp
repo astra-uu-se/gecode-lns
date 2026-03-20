@@ -63,8 +63,8 @@ namespace Gecode { namespace Search { namespace Seq {
   }
 
   bool RBS::slave(const MetaInfo& mi) {
-    const auto slave = master;
-    master = std::shared_ptr<Space>(master->clone());
+    Space* slave = master;
+    master = master->clone();
     const bool c = slave->slave(mi);
     e->reset(slave);
     return c;
@@ -74,12 +74,14 @@ namespace Gecode { namespace Search { namespace Seq {
     if (!restart) {
       return true;
     }
+    // std::cerr << "RBS: restarting" << std::endl;
     restart = false;
     const MetaInfo mi(stop->m_stat.restart, MetaInfo::RR_SOL, ++solutionsSinceLastRestart, e->statistics().fail, last, e->nogoods());
     const bool r = initNext(mi);
     const auto stat = master->status(stop->m_stat);
     if (stat == SS_FAILED) {
       stop->update(e->statistics());
+      delete master;
       master = nullptr;
       e->reset(nullptr);
       return false;
@@ -174,6 +176,7 @@ namespace Gecode { namespace Search { namespace Seq {
 
   RBS::~RBS(void) {
     delete e;
+    delete master;
     delete co;
     delete stop;
   }
