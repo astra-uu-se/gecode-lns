@@ -440,7 +440,8 @@ void SearchController::updateMultiArmedBandit() {
         _bandit = std::make_unique<RoundRobinBandit>(numArms);
     }
     else if (strcmp(bandit_env, "UCBBandit") == 0) {
-        _bandit = std::make_unique<UCBBandit>(numArms);
+        const double explorationCoefficient = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 2;
+        _bandit = std::make_unique<UCBBandit>(numArms, explorationCoefficient);
     }
     else if (strcmp(bandit_env, "SoftMaxBandit") == 0) {
         const double temp = getenv("GECODE_BANDIT_TEMPERATURE") ? stod(getenv("GECODE_BANDIT_TEMPERATURE")) : 0.17969068;
@@ -457,12 +458,13 @@ void SearchController::updateMultiArmedBandit() {
     }
     else if (strcmp(bandit_env, "DiscountedUCBBandit") == 0) {
         const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.8743394685103819;
-        _bandit = std::make_unique<DiscountedUCBBandit>(numArms, discount);
+        const double explorationCoefficient = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 2;
+        _bandit = std::make_unique<DiscountedUCBBandit>(numArms, discount, explorationCoefficient);
     }
     else if (strcmp(bandit_env, "SlidingWindowUCBBandit") == 0) {
         const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 500;
-        const double xi = getenv("GECODE_BANDIT_XI") ? stod(getenv("GECODE_BANDIT_XI")) : 2;
-        _bandit = std::make_unique<SlidingWindowUCBBandit>(numArms, windowsize, xi);
+        const double explorationCoefficient = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 2;
+        _bandit = std::make_unique<SlidingWindowUCBBandit>(numArms, windowsize, explorationCoefficient);
     }
     else if (strcmp(bandit_env, "DiscountedThompsonBandit") == 0) {
         const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.0;
@@ -686,11 +688,12 @@ void GreedyBandit::updateReward(const size_t arm, const size_t wins) {
 }
 
 // UCB Bandit Below.
-UCBBandit::UCBBandit(const size_t numArms)
+UCBBandit::UCBBandit(const size_t numArms, const double explorationCoefficient)
     : AbstractBandit(numArms),
       _totalReward(numArms, 0.0),
       _averageReward(numArms, 0.0),
-      _armTotalCount(numArms, 0) {
+      _armTotalCount(numArms, 0),
+      _explorationCoefficient(explorationCoefficient) {
 }
 
 size_t UCBBandit::getArm() const {
@@ -701,7 +704,7 @@ size_t UCBBandit::getArm() const {
     size_t best_arm = 0;
     for (size_t arm = 0; arm < _numArms; arm++) {
         const double ucb_radius = sqrt(
-            2.0 * log(static_cast<double>(_totalCount)) / static_cast<double>(_armTotalCount[arm]));
+            _explorationCoefficient * log(static_cast<double>(_totalCount)) / static_cast<double>(_armTotalCount[arm]));
         const double reward = _averageReward[arm] + ucb_radius;
         if (reward > best_reward) {
             best_arm = arm;
@@ -813,12 +816,13 @@ void ThompsonBandit::updateReward(const size_t arm, const size_t wins) {
 // Non-stationary Bandits
 //#######################
 
-DiscountedUCBBandit::DiscountedUCBBandit(const size_t numArms, const double discountFactor)
+DiscountedUCBBandit::DiscountedUCBBandit(const size_t numArms, const double discountFactor, const double explorationCoefficient)
     : AbstractBandit(numArms),
       _totalReward(numArms, 0.0),
       _averageReward(numArms, 0.0),
       _armTotalCount(numArms, 0),
-      _discountFactor(discountFactor) {
+      _discountFactor(discountFactor),
+      _explorationCoefficient(explorationCoefficient) {
 }
 
 size_t DiscountedUCBBandit::getArm() const {
@@ -835,7 +839,7 @@ size_t DiscountedUCBBandit::getArm() const {
     size_t best_arm = 0;
     for (size_t arm = 0; arm < _numArms; arm++) {
         const double ucb_radius = sqrt(
-            (max(_averageReward[arm] * (1 - _averageReward[arm]), 0.002) * log(discountedTotalCount)) /
+            (_explorationCoefficient * log(discountedTotalCount)) /
             _armTotalCount[arm]);
 
         const double reward = _averageReward[arm] + ucb_radius;
@@ -863,13 +867,13 @@ void DiscountedUCBBandit::updateReward(const size_t arm, const size_t wins) {
     _averageReward[arm] = _totalReward[arm] / _armTotalCount[arm];
 }
 
-SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double xi)
+SlidingWindowUCBBandit::SlidingWindowUCBBandit(const size_t numArms, const size_t window_size, const double explorationCoefficient)
     : AbstractBandit(numArms),
       _totalReward(numArms),
       _averageReward(numArms),
       _armTotalCount(numArms),
       _windowSize(window_size),
-      _xi(xi) {
+      _explorationCoefficient(explorationCoefficient) {
 }
 
 size_t SlidingWindowUCBBandit::getArm() const {
@@ -885,7 +889,7 @@ size_t SlidingWindowUCBBandit::getArm() const {
     size_t best_arm = 0;
 
     for (size_t arm = 0; arm < _numArms; arm++) {
-        const double padding = sqrt(_xi * log(_observations.size()) / static_cast<double>(_armTotalCount[arm]));
+        const double padding = sqrt(_explorationCoefficient * log(_observations.size()) / static_cast<double>(_armTotalCount[arm]));
         if (const double reward = _averageReward[arm] + padding; reward > best_reward) {
             best_reward = reward;
             best_arm = arm;

@@ -277,8 +277,10 @@ protected:
     std::vector<double> _totalReward;
     std::vector<double> _averageReward;
     std::vector<size_t> _armTotalCount;
+
+    double _explorationCoefficient; // aka xi: "some appropriate constant"; try values ∈(0.5, 5].
 public:
-    explicit UCBBandit(size_t numArms);
+    explicit UCBBandit(size_t numArms, double explorationCoefficient);
     [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
@@ -336,9 +338,9 @@ protected:
     std::vector<double> _armTotalCount;
 
     double _discountFactor; // aka gamma. try values on the larger end of ∈[0,1)
-
+    double _explorationCoefficient; // aka xi. 
 public:
-    explicit DiscountedUCBBandit(size_t numArms, double discountFactor = 0.95);
+    explicit DiscountedUCBBandit(size_t numArms, double discountFactor, double explorationCoefficient);
     [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
@@ -352,10 +354,10 @@ protected:
 
     size_t _windowSize;
     std::queue<std::pair<size_t, double>> _observations;
-    double _xi; // "some appropriate constant"; try values ∈(0.5, 2].
+    double _explorationCoefficient; // aka xi.
 
 public:
-    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double xi = 0.501);
+    explicit SlidingWindowUCBBandit(size_t numArms, size_t window_size, double explorationCoefficient = 0.501);
     [[nodiscard]] size_t getArm() const override;
     void updateReward(size_t arm, size_t wins) override;
 };
