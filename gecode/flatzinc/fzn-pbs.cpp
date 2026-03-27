@@ -425,64 +425,65 @@ void SearchController::updateMultiArmedBandit() {
             }
         }
     }
-    const char* bandit_env = getenv("GECODE_BANDIT_STRATEGY"); // TODO TA ARGUMENT ISTÄLLE
+
+    const std::string bandit_env(getenv("GECODE_BANDIT_STRATEGY") == nullptr ? "GreedyBandit" : getenv("GECODE_BANDIT_STRATEGY")); // TODO TA ARGUMENT ISTÄLLE
     const uint64_t seed = 42;
 
     // Default values found via ParamILS on MiniZinc Challenge 2008-2013 benchmarks
-    if (strcmp(bandit_env, "GreedyBandit") == 0) {
+    if (bandit_env == "GreedyBandit") {
         const double temp = getenv("GECODE_BANDIT_TEMPERATURE") ? stod(getenv("GECODE_BANDIT_TEMPERATURE")) : 0.05;
         _bandit = std::make_unique<GreedyBandit>(numArms, seed, temp);
     }
-    else if (strcmp(bandit_env, "RoundRobinBandit") == 0) {
+    else if (bandit_env == "RoundRobinBandit") {
         _bandit = std::make_unique<RoundRobinBandit>(numArms);
     }
-    else if (strcmp(bandit_env, "UCBBandit") == 0) {
+    else if (bandit_env == "UCBBandit") {
         const double explorationCoefficient = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 2;
         _bandit = std::make_unique<UCBBandit>(numArms, explorationCoefficient);
     }
-    else if (strcmp(bandit_env, "SoftMaxBandit") == 0) {
+    else if (bandit_env == "SoftMaxBandit") {
         const double temp = getenv("GECODE_BANDIT_TEMPERATURE") ? stod(getenv("GECODE_BANDIT_TEMPERATURE")) : 0.17969068;
         _bandit = std::make_unique<SoftMaxBandit>(numArms, seed, temp);
     }
-    else if (strcmp(bandit_env, "Exp3Bandit") == 0) {
+    else if (bandit_env == "Exp3Bandit") {
         const double temp = getenv("GECODE_BANDIT_TEMPERATURE") ? stod(getenv("GECODE_BANDIT_TEMPERATURE")) : 0.10772173;
         _bandit = std::make_unique<Exp3Bandit>(numArms, seed, temp);
     }
-    else if (strcmp(bandit_env, "ThompsonBandit") == 0) {
+    else if (bandit_env == "ThompsonBandit") {
         const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 2.7825594022071245;
         const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 10;
         _bandit = std::make_unique<ThompsonBandit>(numArms, seed, pa, pb);
     }
-    else if (strcmp(bandit_env, "DiscountedUCBBandit") == 0) {
+    else if (bandit_env == "DiscountedUCBBandit") {
         const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.8743394685103819;
         const double explorationCoefficient = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 2;
         _bandit = std::make_unique<DiscountedUCBBandit>(numArms, discount, explorationCoefficient);
     }
-    else if (strcmp(bandit_env, "SlidingWindowUCBBandit") == 0) {
+    else if (bandit_env == "SlidingWindowUCBBandit") {
         const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 500;
         const double explorationCoefficient = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 2;
         _bandit = std::make_unique<SlidingWindowUCBBandit>(numArms, windowsize, explorationCoefficient);
     }
-    else if (strcmp(bandit_env, "DiscountedThompsonBandit") == 0) {
+    else if (bandit_env == "DiscountedThompsonBandit") {
         const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.0;
         const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.046415888336127774;
         const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.9684188616514934;
         _bandit = std::make_unique<DiscountedThompsonBandit>(numArms, seed, pa, pb, discount);
     }
-    else if (strcmp(bandit_env, "SlidingWindowThompsonBandit") == 0) {
+    else if (bandit_env == "SlidingWindowThompsonBandit") {
         const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 1.2915496650148839;
         const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.21544346900318834;
         const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 349;
         _bandit = std::make_unique<SlidingWindowThompsonBandit>(numArms, seed, pa, pb, windowsize);
     }
-    else if (strcmp(bandit_env, "FDiscountedSlidingWindowThompsonBandit") == 0) {
+    else if (bandit_env == "FDiscountedSlidingWindowThompsonBandit") {
         const double pa = getenv("GECODE_BANDIT_PRIOR_ALPHA") ? stod(getenv("GECODE_BANDIT_PRIOR_ALPHA")) : 2.154434690031884;
         const double pb = getenv("GECODE_BANDIT_PRIOR_VETA") ? stod(getenv("GECODE_BANDIT_PRIOR_BETA")) : 0.021544346900318832;
         const double discount = getenv("GECODE_BANDIT_DISCOUNT") ? stod(getenv("GECODE_BANDIT_DISCOUNT")) : 0.8743394685103819;
         const double windowsize = getenv("GECODE_BANDIT_WINDOW_SIZE") ? stod(getenv("GECODE_BANDIT_WINDOW_SIZE")) : 40;
         _bandit = std::make_unique<FDiscountedSlidingWindowThompsonBandit>(numArms, seed, pa, pb, discount, windowsize);
     }
-    else if (strcmp(bandit_env, "RavenBandit") == 0) {
+    else if (bandit_env == "RavenBandit") {
         const double exploration = getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_EXPLORATION_COEFFICIENT")) : 1.291549665014884;
         const double variancecontrol = getenv("GECODE_BANDIT_VARIANCE_CONTROL_COEFFICIENT") ? stod(getenv("GECODE_BANDIT_VARIANCE_CONTROL_COEFFICIENT")) : 1.291549665014884; 
         const double epsilon = getenv("GECODE_BANDIT_EPSILON") ? stod(getenv("GECODE_BANDIT_EPSILON")) : 0.0315811383485066;
