@@ -44,7 +44,7 @@ namespace Gecode { namespace Search {
     return false;
   }
   void
-  Engine::reset(std::shared_ptr<Space> s) {
+  Engine::reset(Space* s) {
     (void) s;
   }
   NoGoods&

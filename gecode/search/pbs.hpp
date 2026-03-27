@@ -249,11 +249,13 @@ namespace Gecode {
     (void) master->master(0);
 
     // No need to create a portfolio engine but must run slave function
-    if (o.numAssets == 1) {
+    /*
+     *if (o.numAssets == 1) {
       (void) master->slave(0);
       e = Search::build<T,E>(master,opt);
       return;
     }
+    */
 
 #ifdef GECODE_HAS_THREADS
     if (opt.numThreads > 1.0)

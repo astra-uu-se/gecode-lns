@@ -81,7 +81,7 @@ namespace Gecode { namespace Search { namespace Seq {
     /// The actual engine
     Engine* e;
     /// The master space to restart from
-    std::shared_ptr<Space> master;
+    Space* master;
     /// The last solution space (possibly nullptr)
     std::shared_ptr<Space> last;
     /// The cutoff object

@@ -2118,6 +2118,7 @@ namespace Gecode { namespace FlatZinc {
     if (thisVal == otherVal) {
       return 0;
     }
+    // std::cerr << "solution (" << thisViol << ", " << thisVal << ")" << std::endl;
     return _method == MIN ? (thisVal < otherVal ? -1 : 1) : (thisVal > otherVal ? -1 : 1);
   }
 
@@ -2842,9 +2843,8 @@ namespace Gecode { namespace FlatZinc {
           ? std::min(local_objective, global_solution->iv[global_solution->_optVar].val())
           : std::max(local_objective, global_solution->iv[global_solution->_optVar].val()))
         : local_objective;
-      auto& ov = iv[_optVar];
-      rel(*this, ov, _method == MIN ? IRT_LE : IRT_GR, best_objective);
-      ;
+      // std::cerr << "constrain (" << best_viol << ", " << best_objective << ")" <<  std::endl;
+      rel(*this, iv[_optVar], _method == MIN ? IRT_LE : IRT_GR, best_objective);
     }
     else {
 #ifdef GECODE_HAS_FLOAT_VARS

@@ -235,78 +235,6 @@ namespace Gecode { namespace FlatZinc {
     Printer& operator=(const Printer&);
   };
 
-  class IncumbentSolution {
-    std::mutex _mutex;
-    static constexpr size_t _maxSize = 3;
-    std::deque<std::shared_ptr<const FlatZincSpace>> _spaces;
-  public:
-    IncumbentSolution() = default;
-
-    std::shared_ptr<const FlatZincSpace> load_random() {
-      _mutex.lock();
-      if (_spaces.empty()) {
-        return nullptr;
-      }
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<size_t> distr(size_t{0}, _spaces.size() - 1);
-      const size_t index = distr(gen);
-      auto space = _spaces[index];
-      _mutex.unlock();
-      return space;
-    }
-
-    std::shared_ptr<const FlatZincSpace> load() {
-      _mutex.lock();
-      auto space = _spaces.empty() ? nullptr : _spaces.front();
-      _mutex.unlock();
-      return space;
-    }
-
-    bool compare_replace_strong(const std::shared_ptr<const FlatZincSpace>& expected_front, const std::shared_ptr<FlatZincSpace> &desired) {
-      _mutex.lock();
-      const bool ret = (_spaces.empty() && expected_front == nullptr) || _spaces.front() == expected_front;
-      if (ret) {
-        _spaces.clear();
-        _spaces.emplace_back(desired);
-      }
-      _mutex.unlock();
-      return ret;
-    }
-
-    bool compare_enqueue_strong(const std::shared_ptr<const FlatZincSpace>& expected_front, const std::shared_ptr<FlatZincSpace>& desired) {
-      _mutex.lock();
-      const bool ret = (_spaces.empty() && expected_front == nullptr) || _spaces.front() == expected_front;
-      if (ret) {
-        if (_spaces.size() >= _maxSize) {
-          _spaces.pop_front();
-        }
-        _spaces.emplace_back(desired);
-      }
-      _mutex.unlock();
-      return ret;
-    }
-
-    void enqueue(const std::shared_ptr<FlatZincSpace>& desired) {
-      _mutex.lock();
-      if (_spaces.size() >= _maxSize) {
-        _spaces.pop_front();
-      }
-      _spaces.emplace_back(desired);
-      _mutex.unlock();
-    }
-
-    void replace(const std::shared_ptr<FlatZincSpace> &desired) {
-      _mutex.lock();
-      _spaces.clear();
-      _spaces.emplace_back(desired);
-      _mutex.unlock();
-    }
-
-    [[nodiscard]] bool hasValue() const { return !_spaces.empty(); }
-
-  };
-
   /**
    * \brief %Options for running %FlatZinc models
    *
@@ -538,6 +466,7 @@ namespace Gecode { namespace FlatZinc {
   extern Rnd defrnd;
 
   class FlatZincSpaceInitData;
+  class IncumbentSolution;
   /**
    * \brief A space that can be initialized with a %FlatZinc model
    *
@@ -1022,6 +951,111 @@ namespace Gecode { namespace FlatZinc {
   FlatZincSpace* parse(std::istream& is,
                        Printer& p, std::ostream& err = std::cerr,
                        FlatZincSpace* fzs=nullptr, Rnd& rnd=defrnd, const FlatZincOptions& opt = nullptr);
+
+  class IncumbentSolution {
+    std::mutex _mutex;
+    static constexpr size_t _maxSize = 3;
+    std::deque<std::shared_ptr<const FlatZincSpace>> _spaces;
+  public:
+    IncumbentSolution() = default;
+
+    std::shared_ptr<const FlatZincSpace> load_random() {
+      _mutex.lock();
+      if (_spaces.empty()) {
+        return nullptr;
+      }
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<size_t> distr(size_t{0}, _spaces.size() - 1);
+      const size_t index = distr(gen);
+      auto space = _spaces[index];
+      _mutex.unlock();
+      return space;
+    }
+
+    std::shared_ptr<const FlatZincSpace> load() {
+      _mutex.lock();
+      auto space = _spaces.empty() ? nullptr : _spaces.front();
+      _mutex.unlock();
+      return space;
+    }
+
+    bool compare_replace_strong(const std::shared_ptr<const FlatZincSpace>& expected_front, const std::shared_ptr<FlatZincSpace> &desired) {
+      _mutex.lock();
+      const bool ret = (_spaces.empty() && expected_front == nullptr) || _spaces.front() == expected_front;
+      if (ret) {
+        _spaces.clear();
+        _spaces.emplace_back(desired);
+      }
+      _mutex.unlock();
+      return ret;
+    }
+
+    bool compare_enqueue_strong(const std::shared_ptr<const FlatZincSpace>& expected_front, const std::shared_ptr<FlatZincSpace>& desired) {
+      _mutex.lock();
+      bool in_spaces = true;
+      for (const auto& space : _spaces)
+      {
+        for (int i = 0; i < std::min(space->bv_lns.size(), desired->bv_lns.size()); ++i)
+        {
+          if (space->bv_lns[i].val() != desired->bv_lns[i].val())
+          {
+            in_spaces = false;
+            break;
+          }
+        }
+        for (int i = 0; in_spaces && i < std::min(space->iv_lns.size(), desired->iv_lns.size()); ++i)
+        {
+          if (space->iv_lns[i].val() != desired->iv_lns[i].val())
+          {
+            in_spaces = false;
+            break;
+          }
+        }
+        for (int i = 0; in_spaces && i < std::min(space->fv_lns.size(), desired->fv_lns.size()); ++i)
+        {
+          if (space->fv_lns[i].val() != desired->fv_lns[i].val())
+          {
+            in_spaces = false;
+            break;
+          }
+        }
+      }
+      if (in_spaces)
+      {
+        _mutex.unlock();
+        return false;
+      }
+      const bool ret = (_spaces.empty() && expected_front == nullptr) || _spaces.front() == expected_front;
+      if (ret) {
+        if (_spaces.size() >= _maxSize) {
+          _spaces.pop_front();
+        }
+        _spaces.emplace_back(desired);
+      }
+      _mutex.unlock();
+      return ret;
+    }
+
+    void enqueue(const std::shared_ptr<FlatZincSpace>& desired) {
+      _mutex.lock();
+      if (_spaces.size() >= _maxSize) {
+        _spaces.pop_front();
+      }
+      _spaces.emplace_back(desired);
+      _mutex.unlock();
+    }
+
+    void replace(const std::shared_ptr<FlatZincSpace> &desired) {
+      _mutex.lock();
+      _spaces.clear();
+      _spaces.emplace_back(desired);
+      _mutex.unlock();
+    }
+
+    [[nodiscard]] bool hasValue() const { return !_spaces.empty(); }
+
+  };
 }}
 
 #endif
