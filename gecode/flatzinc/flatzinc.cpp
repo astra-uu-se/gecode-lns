@@ -2800,6 +2800,8 @@ namespace Gecode { namespace FlatZinc {
 
   void
   FlatZincSpace::constrain(const Space& s) {
+    const bool isLns = _assetType != AssetType::USER && _assetType != AssetType::SHAVING && _assetType != AssetType::USER_OPPOSITE;
+
     const auto& miSpace = dynamic_cast<const FlatZincSpace&>(s);
     assert(_incumbentSolution != nullptr);
     // If PBS, update global bounds.
@@ -2808,17 +2810,35 @@ namespace Gecode { namespace FlatZinc {
     const int best_viol = (global_solution != nullptr && global_solution->total_viol.assigned())
     ? std::min(local_viol, global_solution->total_viol.val())
     : local_viol;
+    if (isLns) {
+      const auto tupleSet = _incumbentSolution->load_tuple_sets();
+      if (tupleSet.has_value()) {
+        IntVarArgs sourceVars(bv_lns.size() + iv_lns.size());
+        std::vector<IntVar> b2i;
+        b2i.reserve(bv_lns.size());
+        for (int i = 0; i < bv_lns.size(); ++i) {
+          sourceVars[i] = IntVar(*this, 0, 1);
+          channel(*this, bv_lns[i], sourceVars[i]);
+        }
+        for (int i = 0; i < iv_lns.size(); ++i) {
+          sourceVars[bv_lns.size() + i] = iv_lns[i];
+        }
+        extensional(*this, sourceVars, *tupleSet, false, IPL_VAL);
+      }
+    }
+
+    const IntRelType objIrl = _method == MIN ? (isLns ? IRT_LQ : IRT_LE) : (isLns ? IRT_GQ : IRT_GR);
+
     if (best_viol > 0) {
+      rel(*this, total_viol, IRT_LQ, best_viol);
       if (_method == SAT) {
-        rel(*this, total_viol, IRT_LE, best_viol);
         return;
       }
-      rel(*this, total_viol, IRT_LQ, best_viol);
 
       BoolVar betterViol(*this, 0, 1);
       rel(*this, total_viol, IRT_LE, best_viol, betterViol);
 
-      BoolVar betterObj(*this, 0, 1);
+      BoolVar cmpObj(*this, 0, 1);
       const int local_objective = miSpace.iv[miSpace._optVar].val();
       const int best_objective = (global_solution != nullptr && global_solution->iv[global_solution->_optVar].assigned())
           // Make sure the global solution exists and that it is assigned.
@@ -2826,9 +2846,8 @@ namespace Gecode { namespace FlatZinc {
           ? std::min(local_objective, global_solution->iv[global_solution->_optVar].val())
           : std::max(local_objective, global_solution->iv[global_solution->_optVar].val()))
         : local_objective;
-
-      rel(*this, iv[_optVar], _method == MIN ? IRT_LE : IRT_GR, best_objective, betterObj);
-      rel(*this, betterViol, BOT_OR, betterObj, true);
+      rel(*this, iv[_optVar], objIrl, best_objective, cmpObj);
+      rel(*this, betterViol, BOT_OR, cmpObj, true);
       return;
     }
     rel(*this, total_viol, IRT_EQ, 0);
@@ -2844,7 +2863,7 @@ namespace Gecode { namespace FlatZinc {
           : std::max(local_objective, global_solution->iv[global_solution->_optVar].val()))
         : local_objective;
       // std::cerr << "constrain (" << best_viol << ", " << best_objective << ")" <<  std::endl;
-      rel(*this, iv[_optVar], _method == MIN ? IRT_LE : IRT_GR, best_objective);
+      rel(*this, iv[_optVar], objIrl, best_objective);
     }
     else {
 #ifdef GECODE_HAS_FLOAT_VARS

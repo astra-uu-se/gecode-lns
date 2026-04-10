@@ -973,6 +973,29 @@ namespace Gecode { namespace FlatZinc {
       return space;
     }
 
+    std::optional<TupleSet> load_tuple_sets() {
+      _mutex.lock();
+      if (_spaces.empty()) {
+        _mutex.unlock();
+        return {};
+      }
+      const int numVars = _spaces.front()->bv_lns.size() + _spaces.front()->iv_lns.size();
+      TupleSet assignments(numVars);
+      for (const auto & space : _spaces) {
+        IntArgs t(numVars);
+        for (int i = 0; i < space->bv_lns.size(); ++i) {
+          t[i] = space->bv_lns[i].val();
+        }
+        for (int i = 0; i < space->iv_lns.size(); ++i) {
+          t[space->bv_lns.size() + i] = space->iv_lns[i].val();
+        }
+        assignments.add(t);
+      }
+      _mutex.unlock();
+      assignments.finalize();
+      return {assignments};
+    }
+
     std::shared_ptr<const FlatZincSpace> load() {
       _mutex.lock();
       auto space = _spaces.empty() ? nullptr : _spaces.front();
