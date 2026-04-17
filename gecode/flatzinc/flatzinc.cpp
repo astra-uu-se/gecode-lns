@@ -2712,6 +2712,7 @@ namespace Gecode { namespace FlatZinc {
             << "%%%mzn-stat: peakDepth=" << stat.depth << std::endl
             << "%%%mzn-stat: LNS type=" << (_lnsAnnType == LNSAnnType::NO_LNS_ANN ? "NO_LNS_ANN" : (_lnsAnnType == LNSAnnType::ONLY_VARS_ANN ? "ONLY_VARS_ANN" : "FULL_LNS_ANN")) << std::endl
             << "%%%mzn-stat: PBS LNS type=" << opt.pbsAssetType() << std::endl
+            << "%%%mzn-stat: MAB type=" << opt.mabType() << std::endl
             << "%%%mzn-stat-end" << std::endl
             << std::endl;
       }

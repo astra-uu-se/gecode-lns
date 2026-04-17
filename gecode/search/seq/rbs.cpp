@@ -171,7 +171,7 @@ namespace Gecode { namespace Search { namespace Seq {
 
   bool
   RBS::alwaysStops(void) const {
-    return ((stop != nullptr) && stop->done()) || e->alwaysStops();
+    return master == nullptr || ((stop != nullptr) && stop->done()) || e->alwaysStops();
   }
 
   RBS::~RBS(void) {

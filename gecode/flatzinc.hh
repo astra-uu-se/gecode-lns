@@ -268,6 +268,7 @@ namespace Gecode { namespace FlatZinc {
       Gecode::Driver::BoolOption        _no_mab; //< Whether to use PBS or default BAB ADDED
       Gecode::Driver::IntOption        _assets; //< How many assets to use for PBS
       Gecode::Driver::IntOption        _pbs_asset_type;
+      Gecode::Driver::IntOption        _mab_type;
       //@}
 
       /// \name Execution options
@@ -326,7 +327,19 @@ namespace Gecode { namespace FlatZinc {
       "8 = branch and bound opposite branching asset; "
       "9 = shaving asset; "
       "-1 = run multiple assets (defined by -assets flag)", -1),
-
+      _mab_type("mab-type", "enumeration of the MAB type: "
+      "0 = Greedy Bandit: "
+      "1 = Round Robin Bandit; "
+      "2 = UCB Bandit; "
+      "3 = SoftMax Bandit; "
+      "4 = Exp3 Bandit; "
+      "5 = Thompson Bandit; "
+      "6 = Discounted UCB Bandit; "
+      "7 = Sliding Window UCB Bandit; "
+      "8 = Discounted Thompson Bandit; "
+      "9 = Sliding Window Thompson Bandit; "
+      "10 = FDiscounted Sliding Window Thompson Bandit; "
+      "11 = Raven Bandit", 0),
       _mode("mode","how to execute script",Gecode::SM_SOLUTION),
       _stat("s","emit statistics"),
       _output("o","file to send output to"),
@@ -360,6 +373,7 @@ namespace Gecode { namespace FlatZinc {
       add(_nogoods); add(_nogoods_limit);
       add(_mode); add(_stat); add(_use_pbs); add(_full_s); add(_assets); add(_no_mab);
       add(_pbs_asset_type);
+      add(_mab_type);
       add(_output);
       add(_allow_softening);
 #ifdef GECODE_HAS_CPPROFILER
@@ -422,6 +436,7 @@ namespace Gecode { namespace FlatZinc {
     unsigned int nogoods_limit(void) const { return _nogoods_limit.value(); }
     bool interrupt(void) const { return _interrupt.value(); }
     int pbsAssetType(void) const { return _pbs_asset_type.value(); }
+    int mabType(void) const { return _mab_type.value(); }
     bool allow_softening(void) const { return _allow_softening.value(); }
 
 #ifdef GECODE_HAS_CPPROFILER
