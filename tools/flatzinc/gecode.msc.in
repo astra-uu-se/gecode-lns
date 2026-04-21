@@ -13,6 +13,7 @@
     ["--s", "Print statistics of all assets (iff -s is used)", "bool", "false"],
     ["--full-s", "Print statistics of all assets (iff -s is used)", "bool", "false"],
     ["--pbs-asset-type", "enumeration of the PBS asset type: 0 = branch and bound asset; 1 = random lns asset; 2 = propagation guided lns asset; 3 = cost impact guided lns asset; 4 = objective relaxation lns asset; 5 = static variable dependency lns asset; 6 = reversed propagation guided lns asset; 7 = prioritized branching bab asset; 8 = branch and bound opposite branching asset; 9 = shaving asset; -1 = run multiple assets", "int", "-1"],
+    ["--mab-type", "enumeration of the MAB type: 0 = branch and bound asset; 1 = random lns asset; 2 = propagation guided lns asset; 3 = cost impact guided lns asset; 4 = objective relaxation lns asset; 5 = static variable dependency lns asset; 6 = reversed propagation guided lns asset; 7 = prioritized branching bab asset; 8 = branch and bound opposite branching asset; 9 = shaving asset; -1 = run multiple assets", "int", "-1"],
     ["--c-d", "Recomputation commit distance", "int", "8"],
     ["--a-d", "Recomputation adaption distance", "int", "2"],
     ["--decay", "Decay factor", "float", "0.99"],
