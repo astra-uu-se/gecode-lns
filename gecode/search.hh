@@ -936,7 +936,7 @@ namespace Gecode { namespace Search {
     /// Constrain future solutions to be better than \a b (raises exception)
     virtual void constrain(const Space& b);
     /// Reset engine to restart at space \a s (does nothing)
-    virtual void reset(std::shared_ptr<Space> s);
+    virtual void reset(Space* s);
     /// Return no-goods (the no-goods are empty)
     virtual NoGoods& nogoods(void);
     /// Destructor
