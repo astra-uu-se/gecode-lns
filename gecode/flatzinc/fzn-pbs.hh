@@ -424,6 +424,19 @@ public:
     void updateReward(size_t arm, size_t wins) override;
 };
 
+class AlwaysRandomBandit : public AbstractBandit {
+public:
+    explicit AlwaysRandomBandit(size_t numArms);
+    [[nodiscard]] size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+class AlwaysVRGBandit : public AbstractBandit {
+public:
+    explicit AlwaysVRGBandit(size_t numArms);
+    [[nodiscard]] size_t getArm() const override;
+    void updateReward(size_t arm, size_t wins) override;
+};
+
 class AssetExecutor : public Gecode::Support::Runnable {
     /// The common controller for running tests
     SearchController& control;

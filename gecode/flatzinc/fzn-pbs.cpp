@@ -454,6 +454,10 @@ void SearchController::updateMultiArmedBandit() {
             mab_type = 10;
         } else if (bandit_env == "RavenBandit") {
             mab_type = 11;
+        } else if (bandit_env == "AlwaysRandomBandit") {
+            mab_type = 12;
+        } else if (bandit_env == "AlwaysVRGBandit") {
+            mab_type = 13;
         } else {
             throw std::invalid_argument("Unknown bandit strategy: " + bandit_env);;
         }
@@ -525,8 +529,14 @@ void SearchController::updateMultiArmedBandit() {
         const double variancecontrol = envOr("GECODE_BANDIT_VARIANCE_CONTROL_COEFFICIENT", 1.291549665014884);
         const double epsilon = envOr("GECODE_BANDIT_EPSILON", 0.0315811383485066);
         _bandit = std::make_unique<RavenBandit>(numArms, exploration, variancecontrol, epsilon);
+    }
+    else if (mab_type == 12) {  // "AlwaysRandomBandit"
+        _bandit = std::make_unique<AlwaysRandomBandit>(numArms);
+    }
+    else if (mab_type == 13) {  // "AlwaysVRGBandit"
+        _bandit = std::make_unique<AlwaysVRGBandit>(numArms);
     } else {
-        throw std::invalid_argument("Unknown bandit strategy: " + std::to_string(mab_type));;
+        throw std::invalid_argument("Unknown bandit strategy: " + std::to_string(mab_type));
     }
 
     _banditMutex.unlock();
@@ -1099,6 +1109,22 @@ void RavenBandit::updateReward(const size_t arm, const size_t wins) {
         _armRewardSampleVariance[arm] = (_armRewardSampleVariance[arm] + (wins - old_mean) * (wins - _armRewardSampleMean[arm])) / (n - 1);
     }
 }
+
+AlwaysRandomBandit::AlwaysRandomBandit(size_t numArms) 
+    : AbstractBandit(numArms) {}
+
+size_t AlwaysRandomBandit::getArm() const {
+    return 0;
+}
+void AlwaysRandomBandit::updateReward(size_t arm, size_t wins) {}
+
+AlwaysVRGBandit::AlwaysVRGBandit(size_t numArms) 
+    : AbstractBandit(numArms) {}
+
+size_t AlwaysVRGBandit::getArm() const {
+    return 7;
+}
+void AlwaysVRGBandit::updateReward(size_t arm, size_t wins) {}
 
 // ########################################################################
 //                         AssetExecutor below.
